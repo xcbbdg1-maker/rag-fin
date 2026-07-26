@@ -10,7 +10,8 @@ import requests
 import chromadb
 from config import (OLLAMA_URL, LLM_MODEL, EMBED_MODEL, CHROMA_PATH, COLLECTION,
                     TOP_K, MAX_DISTANCE, REL_MARGIN, CITE_MARGIN,
-                    LLM_PROVIDER, OPENAI_BASE_URL, OPENAI_API_KEY, OPENAI_MODEL)
+                    LLM_PROVIDER, OPENAI_BASE_URL, OPENAI_API_KEY, OPENAI_MODEL,
+                    ANTHROPIC_BASE_URL, ANTHROPIC_API_KEY, ANTHROPIC_MODEL, LLM_MAX_TOKENS)
 from permissions import allowed_layers
 
 _client = None
@@ -127,14 +128,32 @@ def _context(contexts) -> str:
 _THINK_TAG = re.compile(r"<think>.*?</think>\s*", re.S)
 
 
-def _use_cloud() -> bool:
-    return LLM_PROVIDER == "openai" and bool(OPENAI_API_KEY and OPENAI_BASE_URL)
+def _use_openai() -> bool:
+    # GPT / DeepSeek / Kimi 都是 OpenAI 兼容,走同一条路
+    return LLM_PROVIDER in ("openai", "deepseek", "kimi") and bool(OPENAI_API_KEY and OPENAI_BASE_URL)
+
+
+def _use_anthropic() -> bool:
+    return LLM_PROVIDER == "anthropic" and bool(ANTHROPIC_API_KEY)
+
+
+def _anthropic_headers() -> dict:
+    return {"x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01",
+            "content-type": "application/json"}
 
 
 def generate(question: str, contexts) -> str:
     ctx = _context(contexts)
-    msgs = [{"role": "user", "content": _PROMPT.format(context=ctx, question=question)}]
-    if _use_cloud():
+    prompt = _PROMPT.format(context=ctx, question=question)
+    msgs = [{"role": "user", "content": prompt}]
+    if _use_anthropic():
+        data = _post(f"{ANTHROPIC_BASE_URL.rstrip('/')}/v1/messages",
+                     {"model": ANTHROPIC_MODEL, "max_tokens": LLM_MAX_TOKENS,
+                      "temperature": 0.1, "messages": msgs},
+                     timeout=300, headers=_anthropic_headers())
+        parts = [b.get("text", "") for b in (data.get("content") or []) if b.get("type") == "text"]
+        return "".join(parts).strip()
+    if _use_openai():
         data = _post(f"{OPENAI_BASE_URL.rstrip('/')}/chat/completions",
                      {"model": OPENAI_MODEL, "messages": msgs, "temperature": 0.1, "stream": False},
                      timeout=300, headers={"Authorization": f"Bearer {OPENAI_API_KEY}"})
@@ -153,8 +172,30 @@ def generate(question: str, contexts) -> str:
 def stream_generate(question: str, contexts):
     """流式生成：逐块 yield 文本，避免用户盯着静止的「检索中」等几十秒。"""
     ctx = _context(contexts)
-    msgs = [{"role": "user", "content": _PROMPT.format(context=ctx, question=question)}]
-    if _use_cloud():
+    prompt = _PROMPT.format(context=ctx, question=question)
+    msgs = [{"role": "user", "content": prompt}]
+    if _use_anthropic():
+        with requests.post(f"{ANTHROPIC_BASE_URL.rstrip('/')}/v1/messages",
+                           json={"model": ANTHROPIC_MODEL, "max_tokens": LLM_MAX_TOKENS,
+                                 "temperature": 0.1, "messages": msgs, "stream": True},
+                           headers=_anthropic_headers(), timeout=600, stream=True) as r:
+            r.raise_for_status()
+            for line in r.iter_lines():
+                if not line:
+                    continue
+                s = line.decode("utf-8") if isinstance(line, bytes) else line
+                if not s.startswith("data:"):
+                    continue
+                try:
+                    ev = json.loads(s[5:].strip())
+                except ValueError:
+                    continue
+                if ev.get("type") == "content_block_delta":
+                    piece = (ev.get("delta") or {}).get("text", "")
+                    if piece:
+                        yield piece
+        return
+    if _use_openai():
         with requests.post(f"{OPENAI_BASE_URL.rstrip('/')}/chat/completions",
                            json={"model": OPENAI_MODEL, "messages": msgs, "temperature": 0.1, "stream": True},
                            headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},

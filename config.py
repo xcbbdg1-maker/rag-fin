@@ -7,16 +7,28 @@ load_dotenv()   # 读取项目根的 .env（含云端模型 API key 等），.en
 SECRET_KEY = os.getenv("SECRET_KEY", "change-me-to-a-long-random-string-please")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("TOKEN_MINUTES", "480"))
 
-# 生成模型：provider = "ollama"(本地) 或 "openai"(任意 OpenAI 兼容云端 API)
-# 换云端大模型只需设环境变量，无需改代码：
-#   LLM_PROVIDER=openai
-#   OPENAI_BASE_URL=https://api.deepseek.com/v1   (Kimi: https://api.moonshot.cn/v1；GLM: https://open.bigmodel.cn/api/paas/v4)
-#   OPENAI_API_KEY=sk-xxxx
-#   OPENAI_MODEL=deepseek-chat
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama")
-OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "deepseek-chat")
+# 生成模型：把各家 key 都填进 .env，切换只改 LLM_PROVIDER 这一行。
+# 可选值：ollama(本地免费) / anthropic(Claude) / openai(GPT) / deepseek / kimi
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama").lower()
+
+# OpenAI 兼容家族（GPT / DeepSeek / Kimi 都走同一套协议）：
+#   provider -> (base_url 固定, 各自的 key, 默认模型可用 *_MODEL 覆盖)
+_OPENAI_FAMILY = {
+    "openai":   (os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+                 os.getenv("OPENAI_API_KEY", ""),   os.getenv("OPENAI_MODEL", "gpt-4o")),
+    "deepseek": ("https://api.deepseek.com/v1",
+                 os.getenv("DEEPSEEK_API_KEY", ""), os.getenv("DEEPSEEK_MODEL", "deepseek-chat")),
+    "kimi":     ("https://api.moonshot.cn/v1",
+                 os.getenv("MOONSHOT_API_KEY", ""), os.getenv("KIMI_MODEL", "moonshot-v1-32k")),
+}
+# 解析当前选中的 OpenAI 兼容 provider（选了 ollama/anthropic 时这三个为空，不影响）
+OPENAI_BASE_URL, OPENAI_API_KEY, OPENAI_MODEL = _OPENAI_FAMILY.get(LLM_PROVIDER, ("", "", ""))
+
+# Claude 原生（协议和 OpenAI 不同，单独一套）
+ANTHROPIC_BASE_URL = os.getenv("ANTHROPIC_BASE_URL", "https://api.anthropic.com")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5")
+LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "1500"))
 
 # 本地模型（Ollama）
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
