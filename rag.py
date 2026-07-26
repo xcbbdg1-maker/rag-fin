@@ -129,8 +129,8 @@ _THINK_TAG = re.compile(r"<think>.*?</think>\s*", re.S)
 
 
 def _use_openai() -> bool:
-    # GPT / DeepSeek / Kimi / 阿里云百炼 都是 OpenAI 兼容,走同一条路
-    return LLM_PROVIDER in ("openai", "deepseek", "kimi", "bailian") and bool(OPENAI_API_KEY and OPENAI_BASE_URL)
+    # GPT / DeepSeek / Kimi 都是 OpenAI 兼容,走同一条路
+    return LLM_PROVIDER in ("openai", "deepseek", "kimi") and bool(OPENAI_API_KEY and OPENAI_BASE_URL)
 
 
 def _use_anthropic() -> bool:
