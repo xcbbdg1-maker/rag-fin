@@ -8,10 +8,10 @@ SECRET_KEY = os.getenv("SECRET_KEY", "change-me-to-a-long-random-string-please")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("TOKEN_MINUTES", "480"))
 
 # 生成模型：把各家 key 都填进 .env，切换只改 LLM_PROVIDER 这一行。
-# 可选值：ollama(本地免费) / anthropic(Claude) / openai(GPT) / deepseek / kimi
+# 可选值：ollama(本地免费) / anthropic(Claude) / openai(GPT) / deepseek / kimi / bailian(阿里云百炼)
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama").lower()
 
-# OpenAI 兼容家族（GPT / DeepSeek / Kimi 都走同一套协议）：
+# OpenAI 兼容家族（GPT / DeepSeek / Kimi / 阿里云百炼 都走同一套协议）：
 #   provider -> (base_url 固定, 各自的 key, 默认模型可用 *_MODEL 覆盖)
 _OPENAI_FAMILY = {
     "openai":   (os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
@@ -20,6 +20,8 @@ _OPENAI_FAMILY = {
                  os.getenv("DEEPSEEK_API_KEY", ""), os.getenv("DEEPSEEK_MODEL", "deepseek-chat")),
     "kimi":     ("https://api.moonshot.cn/v1",
                  os.getenv("MOONSHOT_API_KEY", ""), os.getenv("KIMI_MODEL", "moonshot-v1-32k")),
+    "bailian":  ("https://dashscope.aliyuncs.com/compatible-mode/v1",
+                 os.getenv("DASHSCOPE_API_KEY", ""), os.getenv("BAILIAN_MODEL", "qwen-plus")),
 }
 # 解析当前选中的 OpenAI 兼容 provider（选了 ollama/anthropic 时这三个为空，不影响）
 OPENAI_BASE_URL, OPENAI_API_KEY, OPENAI_MODEL = _OPENAI_FAMILY.get(LLM_PROVIDER, ("", "", ""))
