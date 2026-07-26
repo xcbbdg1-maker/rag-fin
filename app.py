@@ -18,7 +18,9 @@ import security
 from config import LLM_MODEL, MAX_UPLOAD_MB
 from ingest import EXTS, LAYER_DIRS, ingest_file
 from permissions import is_admin, allowed_layers
-from rag import answer, retrieve, stream_generate, list_docs, get_doc, sources_for, used_passages
+from rag import (answer, retrieve, stream_generate, list_docs, get_doc, sources_for,
+                 used_passages, current_llm, available_providers, set_active_provider)
+import config
 
 
 def sse(event: str, data: dict) -> str:
@@ -90,6 +92,40 @@ def me(user=Depends(current_user)):
 @app.get("/api/me/stats")
 def my_stats(user=Depends(current_user)):
     return db.user_stats(user["username"])
+
+
+def _provider_label(name: str) -> dict:
+    """provider 名 + 它对应的模型名，供前端展示。"""
+    if name in config._OPENAI_FAMILY:
+        model = config._OPENAI_FAMILY[name][2]
+    elif name == "anthropic":
+        model = config.ANTHROPIC_MODEL
+    else:
+        model = config.LLM_MODEL
+    return {"provider": name, "model": model}
+
+
+@app.get("/api/llm")
+def llm_get(user=Depends(current_user)):
+    """当前生效模型 + 可选清单（配了 key 的才列出）。所有登录用户可见。"""
+    prov, _base, _key, model = current_llm()
+    return {"provider": prov, "model": model,
+            "available": [_provider_label(p) for p in available_providers()]}
+
+
+class LlmIn(BaseModel):
+    provider: str
+
+
+@app.post("/api/llm")
+def llm_set(body: LlmIn, user=Depends(require_admin)):
+    """切换当前生效模型（仅管理员）。热切换，无需重启。"""
+    try:
+        set_active_provider(body.provider)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    prov, _base, _key, model = current_llm()
+    return {"provider": prov, "model": model}
 
 
 @app.post("/api/password")
@@ -178,7 +214,8 @@ def query_stream(body: QueryIn, user=Depends(current_user)):
         srcs = sources_for(text, ctxs)
         yield sse("done", {"elapsed_ms": int((time.time() - t0) * 1000),
                            "sources": srcs,
-                           "passages": used_passages(ctxs) if srcs else []})
+                           "passages": used_passages(ctxs) if srcs else [],
+                           "model": current_llm()[3]})
 
     return StreamingResponse(events(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})

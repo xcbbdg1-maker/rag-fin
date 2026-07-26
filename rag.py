@@ -3,15 +3,17 @@
 关键：retrieve() 在向量检索层用 layer 元数据过滤，
 越权内容根本进不到大模型上下文，而不是事后删。
 """
+import os
 import re
 import json
 import time
 import requests
 import chromadb
+import config
 from config import (OLLAMA_URL, LLM_MODEL, EMBED_MODEL, CHROMA_PATH, COLLECTION,
                     TOP_K, MAX_DISTANCE, REL_MARGIN, CITE_MARGIN,
-                    LLM_PROVIDER, OPENAI_BASE_URL, OPENAI_API_KEY, OPENAI_MODEL,
-                    ANTHROPIC_BASE_URL, ANTHROPIC_API_KEY, ANTHROPIC_MODEL, LLM_MAX_TOKENS)
+                    LLM_PROVIDER, ANTHROPIC_BASE_URL, ANTHROPIC_API_KEY,
+                    ANTHROPIC_MODEL, LLM_MAX_TOKENS)
 from permissions import allowed_layers
 
 _client = None
@@ -128,37 +130,75 @@ def _context(contexts) -> str:
 _THINK_TAG = re.compile(r"<think>.*?</think>\s*", re.S)
 
 
-def _use_openai() -> bool:
-    # GPT / DeepSeek / Kimi 都是 OpenAI 兼容,走同一条路
-    return LLM_PROVIDER in ("openai", "deepseek", "kimi") and bool(OPENAI_API_KEY and OPENAI_BASE_URL)
+# ---- 运行时模型切换：切当前 provider 存到文件，不改 .env、不重启 ----
+_PROVIDER_FILE = os.path.join(os.path.dirname(CHROMA_PATH) or ".", "active_provider.txt")
 
 
-def _use_anthropic() -> bool:
-    return LLM_PROVIDER == "anthropic" and bool(ANTHROPIC_API_KEY)
+def available_providers() -> list:
+    """当前可选的 provider：配了 key 的才算就绪；ollama 本地免费永远可选。"""
+    out = ["ollama"]
+    for name, (base, key, model) in config._OPENAI_FAMILY.items():
+        if key:
+            out.append(name)
+    if ANTHROPIC_API_KEY:
+        out.append("anthropic")
+    return out
 
 
-def _anthropic_headers() -> dict:
-    return {"x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01",
-            "content-type": "application/json"}
+def active_provider() -> str:
+    """当前生效的 provider：优先读运行时覆盖文件，否则回退 .env 的 LLM_PROVIDER。"""
+    try:
+        with open(_PROVIDER_FILE, encoding="utf-8") as f:
+            p = f.read().strip().lower()
+            if p:
+                return p
+    except FileNotFoundError:
+        pass
+    return LLM_PROVIDER
+
+
+def set_active_provider(name: str):
+    name = (name or "").lower()
+    if name not in available_providers():
+        raise ValueError(f"该模型不可选（可能没配 key）：{name}")
+    os.makedirs(os.path.dirname(_PROVIDER_FILE) or ".", exist_ok=True)
+    with open(_PROVIDER_FILE, "w", encoding="utf-8") as f:
+        f.write(name)
+
+
+def current_llm() -> tuple:
+    """返回当前生效的 (provider, base_url, api_key, model)。每次调用实时读取，支持热切换。"""
+    p = active_provider()
+    fam = config._OPENAI_FAMILY.get(p)
+    if fam and fam[1]:                                 # OpenAI 兼容且有 key
+        return p, fam[0], fam[1], fam[2]
+    if p == "anthropic" and ANTHROPIC_API_KEY:
+        return "anthropic", ANTHROPIC_BASE_URL, ANTHROPIC_API_KEY, ANTHROPIC_MODEL
+    return "ollama", "", "", LLM_MODEL                 # 兜底：本地免费
+
+
+def _anthropic_headers(key: str) -> dict:
+    return {"x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"}
 
 
 def generate(question: str, contexts) -> str:
     ctx = _context(contexts)
     prompt = _PROMPT.format(context=ctx, question=question)
     msgs = [{"role": "user", "content": prompt}]
-    if _use_anthropic():
-        data = _post(f"{ANTHROPIC_BASE_URL.rstrip('/')}/v1/messages",
-                     {"model": ANTHROPIC_MODEL, "max_tokens": LLM_MAX_TOKENS,
+    provider, base, key, model = current_llm()
+    if provider == "anthropic":
+        data = _post(f"{base.rstrip('/')}/v1/messages",
+                     {"model": model, "max_tokens": LLM_MAX_TOKENS,
                       "temperature": 0.1, "messages": msgs},
-                     timeout=300, headers=_anthropic_headers())
+                     timeout=300, headers=_anthropic_headers(key))
         parts = [b.get("text", "") for b in (data.get("content") or []) if b.get("type") == "text"]
         return "".join(parts).strip()
-    if _use_openai():
-        data = _post(f"{OPENAI_BASE_URL.rstrip('/')}/chat/completions",
-                     {"model": OPENAI_MODEL, "messages": msgs, "temperature": 0.1, "stream": False},
-                     timeout=300, headers={"Authorization": f"Bearer {OPENAI_API_KEY}"})
+    if provider != "ollama":                           # GPT / DeepSeek / Kimi
+        data = _post(f"{base.rstrip('/')}/chat/completions",
+                     {"model": model, "messages": msgs, "temperature": 0.1, "stream": False},
+                     timeout=300, headers={"Authorization": f"Bearer {key}"})
         return (data.get("choices") or [{}])[0].get("message", {}).get("content", "").strip()
-    payload = {"model": LLM_MODEL, "messages": msgs, "stream": False, "think": False,
+    payload = {"model": model, "messages": msgs, "stream": False, "think": False,
                "options": {"temperature": 0.1}}
     try:
         data = _post(f"{OLLAMA_URL}/api/chat", payload, timeout=300)
@@ -174,11 +214,12 @@ def stream_generate(question: str, contexts):
     ctx = _context(contexts)
     prompt = _PROMPT.format(context=ctx, question=question)
     msgs = [{"role": "user", "content": prompt}]
-    if _use_anthropic():
-        with requests.post(f"{ANTHROPIC_BASE_URL.rstrip('/')}/v1/messages",
-                           json={"model": ANTHROPIC_MODEL, "max_tokens": LLM_MAX_TOKENS,
+    provider, base, key, model = current_llm()
+    if provider == "anthropic":
+        with requests.post(f"{base.rstrip('/')}/v1/messages",
+                           json={"model": model, "max_tokens": LLM_MAX_TOKENS,
                                  "temperature": 0.1, "messages": msgs, "stream": True},
-                           headers=_anthropic_headers(), timeout=600, stream=True) as r:
+                           headers=_anthropic_headers(key), timeout=600, stream=True) as r:
             r.raise_for_status()
             for line in r.iter_lines():
                 if not line:
@@ -195,10 +236,10 @@ def stream_generate(question: str, contexts):
                     if piece:
                         yield piece
         return
-    if _use_openai():
-        with requests.post(f"{OPENAI_BASE_URL.rstrip('/')}/chat/completions",
-                           json={"model": OPENAI_MODEL, "messages": msgs, "temperature": 0.1, "stream": True},
-                           headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
+    if provider != "ollama":                           # GPT / DeepSeek / Kimi
+        with requests.post(f"{base.rstrip('/')}/chat/completions",
+                           json={"model": model, "messages": msgs, "temperature": 0.1, "stream": True},
+                           headers={"Authorization": f"Bearer {key}"},
                            timeout=600, stream=True) as r:
             r.raise_for_status()
             for line in r.iter_lines():
@@ -214,7 +255,7 @@ def stream_generate(question: str, contexts):
                 if piece:
                     yield piece
         return
-    payload = {"model": LLM_MODEL, "messages": msgs, "stream": True, "think": False,
+    payload = {"model": model, "messages": msgs, "stream": True, "think": False,
                "options": {"temperature": 0.1}}
     with requests.post(f"{OLLAMA_URL}/api/chat", json=payload, timeout=600, stream=True) as r:
         r.raise_for_status()

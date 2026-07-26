@@ -55,6 +55,14 @@
   .tb-user{display:flex;align-items:center;gap:8px;min-width:0}
   .tb-nm{font-weight:600;font-size:13px;color:var(--ink)}
   .tb-rl .chip{font-family:var(--mono);font-size:10px;padding:1px 6px;border-radius:5px;background:var(--brass-bg);color:var(--brass);margin-left:4px}
+  .tb-model{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:6px;background:var(--green-bg,#e6f0ea);color:var(--green);margin-left:8px}
+  .modelbox{display:flex;flex-direction:column;gap:8px;margin:6px 0 12px}
+  .modelopt{display:flex;align-items:center;gap:9px;padding:10px 12px;border:1px solid var(--line);border-radius:9px;cursor:pointer;font-size:13.5px}
+  .modelopt:hover{border-color:var(--green)}
+  .modelopt.on{border-color:var(--green);background:var(--bg)}
+  .modelopt .mp{font-weight:600;color:var(--ink)}
+  .modelopt .mm{font-family:var(--mono);font-size:11px;color:var(--muted);margin-left:auto}
+  .modelopt .cur{font-size:10px;color:var(--green);font-weight:600}
   .tb-menu{position:relative}
   .tb-btn{background:transparent;border:1px solid var(--line2);border-radius:8px;padding:6px 12px;font-size:13px;color:var(--ink);cursor:pointer;font-family:inherit}
   .tb-btn:hover{background:var(--bg)}
@@ -183,11 +191,13 @@
 
   <main class="main">
     <div class="topbar">
-      <div class="tb-user"><span class="tb-nm" id="curName"></span><span class="tb-rl" id="curRoles"></span></div>
+      <div class="tb-user"><span class="tb-nm" id="curName"></span><span class="tb-rl" id="curRoles"></span>
+        <span class="tb-model" id="tbModel" title="当前正在使用的大模型"></span></div>
       <div class="tb-menu">
         <button class="tb-btn" id="mgmtBtn">管理 <span class="caret">▾</span></button>
         <div class="tb-drop hide" id="mgmtDrop">
           <div class="tb-stats" id="tbStats">用量加载中…</div>
+          <button class="tb-item hide" id="modelBtn">🧠 模型设置</button>
           <button class="tb-item hide" id="uploadBtn">＋ 上传文档</button>
           <button class="tb-item hide" id="newAcctBtn">＋ 新建账号</button>
           <button class="tb-item" id="pwdBtn">修改我的密码</button>
@@ -227,6 +237,17 @@
     <input id="np" type="password">
     <div class="ok" id="pwdMsg"></div>
     <div class="row"><button class="btn ghost" data-close="pwdModal">取消</button><button class="btn" id="pwdSave">保存</button></div>
+  </div>
+</div>
+
+<!-- 模型设置弹窗 -->
+<div class="modal hide" id="modelModal">
+  <div class="sheet">
+    <h2>选择大模型</h2>
+    <div class="note">只列出已在 .env 里配好 key 的模型。切换即时生效，无需重启。GPT / Claude 需另配 key。</div>
+    <div id="modelList" class="modelbox"></div>
+    <div class="ok" id="modelMsg"></div>
+    <div class="row"><button class="btn ghost" data-close="modelModal">关闭</button></div>
   </div>
 </div>
 
@@ -290,12 +311,44 @@ async function doLogin(){
     const admin = d.roles.includes("admin");
     $("newAcctBtn").classList.toggle("hide", !admin);
     $("uploadBtn").classList.toggle("hide", !admin);
+    $("modelBtn").classList.toggle("hide", !admin);
     $("loginView").classList.add("hide");
     $("appView").classList.remove("hide");
     $("q").focus();
     loadDocs();
     loadStats();
+    loadLLM();
   }catch(e){ $("loginErr").textContent = e.message; }
+}
+
+// ---- 当前大模型 + 切换 ----
+const PROVIDER_CN = { ollama:"本地 Ollama", deepseek:"DeepSeek", kimi:"Kimi", openai:"GPT", anthropic:"Claude" };
+let LLM_AVAIL = [];
+const provName = p => PROVIDER_CN[p] || p;
+async function loadLLM(){
+  try{
+    const d = await api("/api/llm","GET");
+    LLM_AVAIL = d.available || [];
+    $("tbModel").textContent = `${provName(d.provider)} · ${d.model}`;
+  }catch(e){ $("tbModel").textContent = ""; }
+}
+function renderModelList(cur){
+  $("modelList").innerHTML = LLM_AVAIL.map(x=>`
+    <div class="modelopt ${x.provider===cur?"on":""}" data-p="${esc(x.provider)}">
+      <span class="mp">${esc(provName(x.provider))}</span>
+      ${x.provider===cur?'<span class="cur">✓ 当前</span>':''}
+      <span class="mm">${esc(x.model)}</span>
+    </div>`).join("");
+  document.querySelectorAll(".modelopt").forEach(o=> o.onclick = ()=> switchModel(o.dataset.p));
+}
+async function switchModel(provider){
+  $("modelMsg").textContent = "切换中…"; $("modelMsg").style.color="var(--muted)";
+  try{
+    const d = await api("/api/llm","POST",{provider});
+    $("tbModel").textContent = `${provName(d.provider)} · ${d.model}`;
+    $("modelMsg").style.color="var(--green)"; $("modelMsg").textContent = `已切换到 ${provName(d.provider)}`;
+    renderModelList(d.provider);
+  }catch(e){ $("modelMsg").style.color="var(--rust)"; $("modelMsg").textContent = e.message; }
 }
 
 // 用量统计：提问数 / 活跃天数（下拉里显示）
@@ -401,7 +454,7 @@ async function ask(){
   const tk = turn.querySelector("#tk"); if(tk) tk.removeAttribute("id");
   const timer = setInterval(()=>{ if(tk && tk.isConnected) tk.textContent = `思考中… ${secs()}s`; }, 100);
 
-  let text = "", sources = [], passages = [], started = false;
+  let text = "", sources = [], passages = [], ansModel = "", started = false;
   const finish = (took)=>{
     clearInterval(timer);
     // 来源：每个单独一行（准则名 + 发文字号 + 层 + 官方原文链接）
@@ -429,7 +482,7 @@ async function ask(){
     ansEl.innerHTML = `<div class="body">${esc(text)}</div>`
       + (cites?`<div class="cite"><div class="citehdr">来源（点标题看应用内原文）</div>${cites}</div>`:"")
       + refs
-      + `<div class="took">思考用时 ${took}</div>`
+      + `<div class="took">${ansModel?`由 <b>${esc(ansModel)}</b> 生成 · `:""}思考用时 ${took}</div>`
       + followup;
     ansEl.querySelectorAll(".srcbtn").forEach(b=> b.onclick = ()=> openDoc(b.dataset.src, text));
     ansEl.querySelectorAll(".fu").forEach(b=> b.onclick = ()=>{ $("q").value = b.textContent; ask(); });
@@ -464,7 +517,7 @@ async function ask(){
           bodyEl.innerHTML = esc(text) + `<span class="cursor"></span>`;
           $("scroll").scrollTop = $("scroll").scrollHeight;
         }
-        else if(ev === "done"){ sources = d.sources || []; passages = d.passages || []; finish(`${(d.elapsed_ms/1000).toFixed(1)}s`); return; }
+        else if(ev === "done"){ sources = d.sources || []; passages = d.passages || []; ansModel = d.model || ""; finish(`${(d.elapsed_ms/1000).toFixed(1)}s`); return; }
         else if(ev === "error"){ throw new Error(d.message); }
       }
     }
@@ -487,6 +540,7 @@ $("mgmtBtn").onclick = (e)=>{ e.stopPropagation(); $("mgmtDrop").classList.toggl
 document.addEventListener("click", (e)=>{ if(!e.target.closest(".tb-menu")) $("mgmtDrop").classList.add("hide"); });
 document.querySelectorAll(".tb-item").forEach(b=> b.addEventListener("click", ()=> $("mgmtDrop").classList.add("hide")));
 
+$("modelBtn").onclick = async ()=>{ $("modelMsg").textContent=""; await loadLLM(); const c=(await api("/api/llm","GET")).provider; renderModelList(c); $("modelModal").classList.remove("hide"); };
 $("uploadBtn").onclick = ()=>{ $("upMsg").textContent=""; $("uf").value=""; $("upModal").classList.remove("hide"); };
 
 // ---- 上传文档：服务端同进程入库，回来即可检索，无需重启 ----

@@ -12,3 +12,6 @@ data/docs/**
 !data/docs/finance/
 !data/docs/all/.gitkeep
 !data/docs/finance/.gitkeep
+
+# 运行时选中的模型(热切换状态)
+data/active_provider.txt
