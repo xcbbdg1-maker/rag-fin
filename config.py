@@ -54,7 +54,10 @@ CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "60"))
 # 问「如何编制现金流量表」时报销管理办法照样被塞进上下文并列为来源。
 # 两道闸:绝对距离上限(全库都不相关时直接判定为"查不到"),
 # 以及相对最佳命中的容差(命中很准时,把勉强沾边的甩掉)。
-MAX_DISTANCE = float(os.getenv("MAX_DISTANCE", "0.55"))
+# MAX_DISTANCE 从 0.55 放宽到 0.65：纯英文缩写("什么是CGU")向量信号弱、距离偏大(实测 0.593)，
+# 0.55 会把库里明明有的内容误杀。放宽后由第二道防线兜底：模型看了资料对不上会答"没有相关内容"、
+# 来源随之清空(见 sources_for)，所以放宽绝对闸门不会导致乱答。
+MAX_DISTANCE = float(os.getenv("MAX_DISTANCE", "0.65"))
 REL_MARGIN = float(os.getenv("REL_MARGIN", "0.08"))
 
 # 展示给用户的「来源」比喂给模型的上下文更严格。

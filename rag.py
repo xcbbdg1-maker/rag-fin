@@ -66,6 +66,41 @@ def embed(text: str):
     return embed_many([text])[0]
 
 
+# 这些缩写满库都是,不具区分度,关键词补召回时跳过
+_KW_STOP = {"US", "GAAP", "IFRS", "IAS", "ASC", "CAS", "HKFRS", "FASB", "IASB",
+            "SEC", "EY", "KPMG", "PWC", "GLM"}
+
+
+def _keyword_hits(where: dict, question: str, per_term: int = 3, dist: float = 0.40) -> list:
+    """关键词精确补召回。向量检索对纯英文缩写(如"什么是CGU")召回弱 —— 三字母查询语义信号太少，
+    真正含该词的片段反而进不了前几名。这里对查询里的英文词/缩写做子串精确匹配把它们补回来。
+    给一个中等距离 0.40：向量命中很准(<0.32)时盖不过它，向量很弱(>0.48)时它能顶上。"""
+    # 只补"生僻大写缩写"(CGU/ECL/LIFO 这种向量抓不到的);
+    # 跳过 US/GAAP/IFRS 等满库都是的高频词,否则会捞回一堆随机片段挤掉真正相关的。
+    terms = [t for t in re.findall(r'[A-Za-z]{2,}', question)
+             if t.isupper() and 2 <= len(t) <= 6 and t not in _KW_STOP]
+    if not terms:
+        return []
+    col = collection()
+    out, seen = [], set()
+    for t in terms:
+        try:
+            res = col.get(where=where, where_document={"$contains": t},
+                          limit=per_term, include=["documents", "metadatas"])
+        except Exception:
+            continue
+        for d, m in zip(res.get("documents") or [], res.get("metadatas") or []):
+            m = m or {}
+            key = (m.get("source"), d[:40])
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append({"text": d, "source": m.get("source"), "layer": m.get("layer"),
+                        "title": m.get("title"), "url": m.get("url"),
+                        "doc_no": m.get("doc_no"), "distance": dist})
+    return out
+
+
 def retrieve(question: str, layers, k: int = TOP_K, include_superseded: bool = False):
     """检索。默认排除已废止版本 —— 与权限过滤同理:不让它进上下文,而不是事后删。
 
@@ -91,6 +126,13 @@ def retrieve(question: str, layers, k: int = TOP_K, include_superseded: bool = F
         hits.append({"text": d, "source": m.get("source"), "layer": m.get("layer"),
                      "title": m.get("title"), "url": m.get("url"),
                      "doc_no": m.get("doc_no"), "distance": dist})
+    # 关键词补召回(补向量对英文缩写的短板),去重后并入
+    seen = {(h["source"], h["text"][:40]) for h in hits}
+    for kh in _keyword_hits(where, question):
+        key = (kh["source"], kh["text"][:40])
+        if key not in seen:
+            hits.append(kh)
+            seen.add(key)
     if not hits:
         return []
     # 相关性闸门:向量库总会凑满 TOP_K,不过滤就会把无关文档塞进上下文并列为来源。
@@ -101,7 +143,9 @@ def retrieve(question: str, layers, k: int = TOP_K, include_superseded: bool = F
             if h["distance"] <= MAX_DISTANCE and h["distance"] <= best + REL_MARGIN]
 
 
-_PROMPT = """你是财务知识库助手。只依据下面的资料回答问题；资料里没有的，直接说“知识库中没有相关内容”，不要编造，尤其不要编造任何数字。
+_PROMPT = """你是财务知识库助手。只依据下面的资料回答问题；资料里没有的，直接说“知识库中没有相关内容”，不要编造，尤其不要编造任何数字或具体规定。
+
+术语解释：如果问题是问某个术语/缩写是什么（如“什么是CGU”），而该术语在资料中出现过，请结合资料里它的上下文用法把它解释清楚（例如它属于哪个准则、用在什么场景），不要因为资料里没有一句正式定义就答“没有相关内容”。若该术语在资料中根本没出现，才回答没有相关内容。
 
 排版要求：分段作答，不要挤成一大段。
 - 若问题涉及不同准则/口径的对比（如 US GAAP 与 IFRS、中国准则与国际准则），必须分成独立段落：先一段讲一方的处理（如“US GAAP：……”），再一段讲另一方（如“IFRS：……”），最后可用一段点明核心差异。
