@@ -51,6 +51,19 @@
   .side .foot{padding:14px 20px;border-top:1px solid rgba(255,255,255,.09)}
 
   .main{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden}
+  .topbar{display:flex;align-items:center;justify-content:space-between;padding:10px 26px;border-bottom:1px solid var(--line);background:var(--card)}
+  .tb-user{display:flex;align-items:center;gap:8px;min-width:0}
+  .tb-nm{font-weight:600;font-size:13px;color:var(--ink)}
+  .tb-rl .chip{font-family:var(--mono);font-size:10px;padding:1px 6px;border-radius:5px;background:var(--brass-bg);color:var(--brass);margin-left:4px}
+  .tb-menu{position:relative}
+  .tb-btn{background:transparent;border:1px solid var(--line2);border-radius:8px;padding:6px 12px;font-size:13px;color:var(--ink);cursor:pointer;font-family:inherit}
+  .tb-btn:hover{background:var(--bg)}
+  .tb-btn .caret{font-size:9px;color:var(--muted)}
+  .tb-drop{position:absolute;right:0;top:calc(100% + 6px);background:var(--card);border:1px solid var(--line2);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.12);padding:5px;min-width:150px;z-index:20;display:flex;flex-direction:column}
+  .tb-item{background:none;border:none;text-align:left;padding:8px 12px;border-radius:7px;font-size:13px;color:var(--ink);cursor:pointer;font-family:inherit;white-space:nowrap}
+  .tb-item:hover{background:var(--bg)}
+  .tb-item.danger{color:var(--rust)}
+  .tb-sep{height:1px;background:var(--line);margin:4px 6px}
   .scroll{flex:1;min-height:0;overflow-y:auto;padding:22px 26px}
   .wrap{max-width:820px;margin:0 auto}
   .empty{color:var(--muted);text-align:center;padding:40px 0;font-size:14px}
@@ -145,21 +158,26 @@
 <div class="app hide" id="appView">
   <aside class="side">
     <div class="brand"><h1>财务知识库</h1><p>本地自建 · RAG</p></div>
-    <div class="who"><div class="nm" id="curName"></div><div class="rl" id="curRoles"></div></div>
     <div class="sec">
       <h3>知识库（你可见的）<span id="docCount" class="doccount"></span></h3>
       <div id="docList" class="doclist"></div>
     </div>
-    <div class="sec">
-      <h3 id="adminTitle" class="hide">管理</h3>
-      <button class="lite hide" id="uploadBtn">+ 上传文档</button>
-      <button class="lite hide" id="newAcctBtn">+ 新建账号</button>
-      <button class="lite" id="pwdBtn">修改我的密码</button>
-    </div>
-    <div class="foot"><button class="lite" id="logoutBtn">退出登录</button></div>
   </aside>
 
   <main class="main">
+    <div class="topbar">
+      <div class="tb-user"><span class="tb-nm" id="curName"></span><span class="tb-rl" id="curRoles"></span></div>
+      <div class="tb-menu">
+        <button class="tb-btn" id="mgmtBtn">管理 <span class="caret">▾</span></button>
+        <div class="tb-drop hide" id="mgmtDrop">
+          <button class="tb-item hide" id="uploadBtn">＋ 上传文档</button>
+          <button class="tb-item hide" id="newAcctBtn">＋ 新建账号</button>
+          <button class="tb-item" id="pwdBtn">修改我的密码</button>
+          <div class="tb-sep"></div>
+          <button class="tb-item danger" id="logoutBtn">退出登录</button>
+        </div>
+      </div>
+    </div>
     <div class="scroll" id="scroll"><div class="wrap"><div id="log"></div>
       <div class="empty" id="empty">
         <p>知识库已涵盖<b>中国企业会计准则</b>（主文本+解释）、<b>中美/国际准则差异对照</b>（KPMG/EY，收入·租赁·金融工具·合并·存货·税）与制度口径。下面挑一个试问，或直接输入问题。</p>
@@ -251,7 +269,6 @@ async function doLogin(){
     $("curName").textContent = d.username;
     $("curRoles").innerHTML = d.roles.map(r=>`<span class="chip">${r}</span>`).join("");
     const admin = d.roles.includes("admin");
-    $("adminTitle").classList.toggle("hide", !admin);
     $("newAcctBtn").classList.toggle("hide", !admin);
     $("uploadBtn").classList.toggle("hide", !admin);
     $("loginView").classList.add("hide");
@@ -418,6 +435,11 @@ $("q").addEventListener("keydown", e=>{ if(e.key==="Enter") ask(); });
 // 弹窗开关
 document.querySelectorAll("[data-close]").forEach(b=> b.onclick = ()=> $(b.dataset.close).classList.add("hide"));
 $("pwdBtn").onclick = ()=>{ $("pwdMsg").textContent=""; $("np").value=""; $("pwdModal").classList.remove("hide"); };
+// 右上角"管理"下拉：开合 + 点外部关闭
+$("mgmtBtn").onclick = (e)=>{ e.stopPropagation(); $("mgmtDrop").classList.toggle("hide"); };
+document.addEventListener("click", (e)=>{ if(!e.target.closest(".tb-menu")) $("mgmtDrop").classList.add("hide"); });
+document.querySelectorAll(".tb-item").forEach(b=> b.addEventListener("click", ()=> $("mgmtDrop").classList.add("hide")));
+
 $("uploadBtn").onclick = ()=>{ $("upMsg").textContent=""; $("uf").value=""; $("upModal").classList.remove("hide"); };
 
 // ---- 上传文档：服务端同进程入库，回来即可检索，无需重启 ----
