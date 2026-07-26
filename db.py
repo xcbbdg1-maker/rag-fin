@@ -21,6 +21,37 @@ def init_db():
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )"""
         )
+        # 每次提问记一行,用于统计"提问总数 / 活跃天数"
+        c.execute(
+            """CREATE TABLE IF NOT EXISTS query_log(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                ts TEXT DEFAULT CURRENT_TIMESTAMP
+            )"""
+        )
+
+
+def log_query(username: str):
+    with _conn() as c:
+        c.execute("INSERT INTO query_log(username) VALUES(?)", (username,))
+
+
+def user_stats(username: str) -> dict:
+    """返回该用户:累计提问数、活跃天数(有提问的不同日期数)、首次使用日期。"""
+    with _conn() as c:
+        q = c.execute(
+            "SELECT COUNT(*) n, COUNT(DISTINCT date(ts)) d, MIN(date(ts)) first "
+            "FROM query_log WHERE username=?", (username,)
+        ).fetchone()
+        acct = c.execute(
+            "SELECT date(created_at) c FROM users WHERE username=?", (username,)
+        ).fetchone()
+    return {
+        "questions": q["n"] or 0,
+        "active_days": q["d"] or 0,
+        "first_query_day": q["first"],
+        "member_since": acct["c"] if acct else None,
+    }
 
 
 def get_user(username: str):

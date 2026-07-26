@@ -87,6 +87,11 @@ def me(user=Depends(current_user)):
     return {"username": user["username"], "roles": user["roles"]}
 
 
+@app.get("/api/me/stats")
+def my_stats(user=Depends(current_user)):
+    return db.user_stats(user["username"])
+
+
 @app.post("/api/password")
 def change_password(body: PasswordIn, user=Depends(current_user)):
     if len(body.new_password) < 8:
@@ -137,6 +142,7 @@ def query_stream(body: QueryIn, user=Depends(current_user)):
     if not body.question.strip():
         raise HTTPException(400, "问题不能为空")
     layers = allowed_layers(user["roles"])
+    db.log_query(user["username"])          # 记一次提问,用于用量统计
 
     def events():
         t0 = time.time()

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>财务知识库助手 · 本地自建</title>
+<title>准则智库 · 本地自建</title>
 <style>
   :root{
     --ink:#16241f; --ink2:#4a5b54; --muted:#93a099;
@@ -109,6 +109,14 @@
   .sg{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:7px 15px;font-size:13px;
       color:var(--ink2);font-family:var(--sans);cursor:pointer;max-width:100%}
   .sg:hover{border-color:var(--green);color:var(--green)}
+  .note{background:var(--brass-bg);color:var(--brass);border-radius:8px;padding:8px 11px;font-size:12px;line-height:1.5;margin-bottom:14px}
+  /* 问完之后的追问建议条 */
+  .followup{margin:14px 0 4px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .followup .fu-label{font-size:12px;color:var(--muted)}
+  .followup .sg{padding:5px 12px;font-size:12.5px}
+  /* 用量统计（下拉里） */
+  .tb-stats{padding:8px 12px;font-size:12px;color:var(--muted);line-height:1.7;border-bottom:1px solid var(--line);margin-bottom:4px}
+  .tb-stats b{color:var(--ink);font-family:var(--mono)}
 
   /* 来源可点击 */
   .srcbtn{background:none;border:none;padding:0;font:inherit;color:var(--ink);font-weight:600;
@@ -143,8 +151,8 @@
 <!-- 登录页 -->
 <div class="login-wrap" id="loginView">
   <div class="login">
-    <h1>财务知识库助手</h1>
-    <div class="sub">本地自建 · 权限感知 RAG</div>
+    <h1>准则智库</h1>
+    <div class="sub">中国 · 美国 · 国际会计准则对照 | 本地自建 RAG</div>
     <label>用户名</label>
     <input id="lu" autocomplete="username" placeholder="admin / finance / employee">
     <label>密码</label>
@@ -157,7 +165,7 @@
 <!-- 主界面 -->
 <div class="app hide" id="appView">
   <aside class="side">
-    <div class="brand"><h1>财务知识库</h1><p>本地自建 · RAG</p></div>
+    <div class="brand"><h1>准则智库</h1><p>中美 · 国际准则对照</p></div>
     <div class="sec">
       <h3>知识库（你可见的）<span id="docCount" class="doccount"></span></h3>
       <div id="docList" class="doclist"></div>
@@ -170,6 +178,7 @@
       <div class="tb-menu">
         <button class="tb-btn" id="mgmtBtn">管理 <span class="caret">▾</span></button>
         <div class="tb-drop hide" id="mgmtDrop">
+          <div class="tb-stats" id="tbStats">用量加载中…</div>
           <button class="tb-item hide" id="uploadBtn">＋ 上传文档</button>
           <button class="tb-item hide" id="newAcctBtn">＋ 新建账号</button>
           <button class="tb-item" id="pwdBtn">修改我的密码</button>
@@ -232,6 +241,7 @@
 <div class="modal hide" id="acctModal">
   <div class="sheet">
     <h2>新建账号</h2>
+    <div class="note">🔒 仅管理员可新建账号。新账号由你在此代为开通，不支持用户自助注册。</div>
     <label>用户名</label>
     <input id="au">
     <label>初始密码（至少 8 位）</label>
@@ -248,7 +258,7 @@
 </div>
 
 <script>
-let TOKEN = null, ROLES = [];
+let TOKEN = null, ROLES = [], curSuggest = [], fuIdx = 0;
 const $ = id => document.getElementById(id);
 async function api(path, method, body){
   const h = {"Content-Type":"application/json"};
@@ -275,7 +285,17 @@ async function doLogin(){
     $("appView").classList.remove("hide");
     $("q").focus();
     loadDocs();
+    loadStats();
   }catch(e){ $("loginErr").textContent = e.message; }
+}
+
+// 用量统计：提问数 / 活跃天数（下拉里显示）
+async function loadStats(){
+  try{
+    const s = await api("/api/me/stats","GET");
+    const since = s.member_since ? `，注册于 ${s.member_since}` : "";
+    $("tbStats").innerHTML = `累计提问 <b>${s.questions}</b> 次 · 活跃 <b>${s.active_days}</b> 天${since}`;
+  }catch(e){ $("tbStats").textContent = "用量：暂无数据"; }
 }
 $("loginBtn").onclick = doLogin;
 $("lp").addEventListener("keydown", e=>{ if(e.key==="Enter") doLogin(); });
@@ -329,10 +349,9 @@ async function loadDocs(){
 
     // 示例问题：只给用户权限内的层；finance 用户优先看准则对照类
     const layers = [...new Set(docs.map(x=>x.layer))];
-    const pool = layers.includes("finance") ? SUGGEST.finance : (SUGGEST[layers[0]] || []);
-    const qs = pool.slice(0,4);
-    $("suggestBox").innerHTML = qs.map(q=>`<button class="sg">${esc(q)}</button>`).join("");
-    document.querySelectorAll(".sg").forEach(b=> b.onclick = ()=>{ $("q").value = b.textContent; ask(); });
+    curSuggest = layers.includes("finance") ? SUGGEST.finance : (SUGGEST[layers[0]] || []);
+    $("suggestBox").innerHTML = curSuggest.slice(0,4).map(q=>`<button class="sg">${esc(q)}</button>`).join("");
+    document.querySelectorAll("#suggestBox .sg").forEach(b=> b.onclick = ()=>{ $("q").value = b.textContent; ask(); });
   }catch(e){ $("docList").innerHTML = `<div class="none">${esc(e.message)}</div>`; }
 }
 
@@ -383,11 +402,22 @@ async function ask(){
       const link = s.url ? ` <a class="srclink" href="${esc(s.url)}" target="_blank" rel="noopener">官方原文</a>` : "";
       return `<button class="srcbtn" data-src="${esc(s.source)}">${esc(label)}</button>${no}<span class="lay ${s.layer}">${s.layer}</span>${link}`;
     }).join("；");
+    // 每次回答后再给几个可点的追问建议（轮换，不总是同 4 个）
+    let followup = "";
+    if(curSuggest.length){
+      const picks = [];
+      for(let i=0;i<Math.min(3,curSuggest.length);i++){ picks.push(curSuggest[fuIdx % curSuggest.length]); fuIdx++; }
+      followup = `<div class="followup"><span class="fu-label">继续问：</span>`
+        + picks.map(q=>`<button class="sg fu">${esc(q)}</button>`).join("") + `</div>`;
+    }
     ansEl.innerHTML = `<div class="body">${esc(text)}</div>`
       + (cites?`<div class="cite">来源：${cites}　<span style="color:var(--muted)">（点击查看原文）</span></div>`:"")
-      + `<div class="took">思考用时 ${took}</div>`;
+      + `<div class="took">思考用时 ${took}</div>`
+      + followup;
     ansEl.querySelectorAll(".srcbtn").forEach(b=> b.onclick = ()=> openDoc(b.dataset.src, text));
+    ansEl.querySelectorAll(".fu").forEach(b=> b.onclick = ()=>{ $("q").value = b.textContent; ask(); });
     $("scroll").scrollTop = $("scroll").scrollHeight;
+    loadStats();                       // 提问数变了，刷新用量
   };
 
   try{
