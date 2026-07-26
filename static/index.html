@@ -300,25 +300,52 @@ async function api(path, method, body){
 }
 function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
 
+// ---- 登录会话：存浏览器本地，2 小时内刷新/重开都免登录 ----
+const SESSION_HOURS = 2;
+function saveSession(token, username, roles){
+  localStorage.setItem("rf_token", token);
+  localStorage.setItem("rf_exp", String(Date.now() + SESSION_HOURS*3600*1000));
+  localStorage.setItem("rf_user", username);
+  localStorage.setItem("rf_roles", JSON.stringify(roles||[]));
+}
+function clearSession(){ ["rf_token","rf_exp","rf_user","rf_roles"].forEach(k=>localStorage.removeItem(k)); }
+
+// 登录成功后统一进入应用（自动恢复也走这里）
+function enterApp(username, roles){
+  ROLES = roles || [];
+  $("curName").textContent = username;
+  $("curRoles").innerHTML = ROLES.map(r=>`<span class="chip">${esc(r)}</span>`).join("");
+  const admin = ROLES.includes("admin");
+  $("newAcctBtn").classList.toggle("hide", !admin);
+  $("uploadBtn").classList.toggle("hide", !admin);
+  $("modelBtn").classList.toggle("hide", !admin);
+  $("loginView").classList.add("hide");
+  $("appView").classList.remove("hide");
+  $("q").focus();
+  loadDocs(); loadStats(); loadLLM();
+}
+
 // 登录
 async function doLogin(){
   $("loginErr").textContent = "";
   try{
     const d = await api("/api/login","POST",{username:$("lu").value.trim(), password:$("lp").value});
-    TOKEN = d.access_token; ROLES = d.roles;
-    $("curName").textContent = d.username;
-    $("curRoles").innerHTML = d.roles.map(r=>`<span class="chip">${r}</span>`).join("");
-    const admin = d.roles.includes("admin");
-    $("newAcctBtn").classList.toggle("hide", !admin);
-    $("uploadBtn").classList.toggle("hide", !admin);
-    $("modelBtn").classList.toggle("hide", !admin);
-    $("loginView").classList.add("hide");
-    $("appView").classList.remove("hide");
-    $("q").focus();
-    loadDocs();
-    loadStats();
-    loadLLM();
+    TOKEN = d.access_token;
+    saveSession(TOKEN, d.username, d.roles);
+    enterApp(d.username, d.roles);
   }catch(e){ $("loginErr").textContent = e.message; }
+}
+
+// 页面加载时：本地有未过期凭证就自动进入，不必重输密码
+async function restoreSession(){
+  const token = localStorage.getItem("rf_token");
+  const exp = parseInt(localStorage.getItem("rf_exp")||"0", 10);
+  if(!token || Date.now() > exp){ clearSession(); return; }   // 没有或已过 2 小时 → 老实登录
+  TOKEN = token;
+  try{
+    const me = await api("/api/me","GET");        // 服务端再校验一次 token 是否仍有效
+    enterApp(me.username, me.roles);
+  }catch(e){ clearSession(); TOKEN = null; }       // 服务端已失效 → 回登录页
 }
 
 // ---- 当前大模型 + 切换 ----
@@ -581,7 +608,10 @@ $("acctSave").onclick = async ()=>{
   }catch(e){ $("acctMsg").style.color="var(--rust)"; $("acctMsg").textContent=e.message; }
 };
 
-$("logoutBtn").onclick = ()=>{ TOKEN=null; ROLES=[]; $("appView").classList.add("hide"); $("loginView").classList.remove("hide"); $("log").innerHTML=""; $("empty").classList.remove("hide"); };
+$("logoutBtn").onclick = ()=>{ TOKEN=null; ROLES=[]; clearSession(); $("appView").classList.add("hide"); $("loginView").classList.remove("hide"); $("log").innerHTML=""; $("empty").classList.remove("hide"); };
+
+// 页面一打开就尝试恢复上次登录（2 小时内免密）
+restoreSession();
 </script>
 </body>
 </html>

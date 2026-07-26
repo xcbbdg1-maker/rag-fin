@@ -5,7 +5,7 @@ load_dotenv()   # 读取项目根的 .env（含云端模型 API key 等），.en
 
 # 认证
 SECRET_KEY = os.getenv("SECRET_KEY", "change-me-to-a-long-random-string-please")
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("TOKEN_MINUTES", "480"))
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("TOKEN_MINUTES", "120"))   # 登录有效期 2 小时
 
 # 生成模型：把各家 key 都填进 .env，切换只改 LLM_PROVIDER 这一行。
 # 可选值：ollama(本地免费) / anthropic(Claude) / openai(GPT) / deepseek / kimi
