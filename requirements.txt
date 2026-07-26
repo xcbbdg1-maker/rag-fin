@@ -13,3 +13,4 @@ requests==2.*
 pypdf==5.*
 python-docx==1.*
 python-multipart==0.0.20
+python-dotenv==1.0.1

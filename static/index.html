@@ -72,8 +72,17 @@
   .ask .b{background:var(--ink);color:#f2f5f2;padding:9px 14px;border-radius:14px 14px 3px 14px;max-width:80%;font-size:14px}
   .ans{background:var(--card);border:1px solid var(--line);border-radius:3px 14px 14px 14px;overflow:hidden}
   .ans .body{padding:14px 17px;white-space:pre-wrap;font-size:14.5px}
-  .ans .cite{border-top:1px solid var(--line2);padding:9px 17px;font-size:12px;color:var(--ink2)}
+  .ans .cite{border-top:1px solid var(--line2);padding:10px 17px;font-size:12px;color:var(--ink2)}
   .ans .cite b{color:var(--ink)}
+  .cite .citehdr{color:var(--muted);margin-bottom:6px}
+  .citerow{padding:3px 0;line-height:1.6}
+  /* 参考原文折叠区 */
+  .refs{border-top:1px solid var(--line2);padding:10px 17px;font-size:12.5px}
+  .refs summary{cursor:pointer;color:var(--green);font-weight:600;list-style:none}
+  .refs summary::-webkit-details-marker{display:none}
+  .refitem{margin-top:10px;padding:10px 12px;background:var(--bg);border-radius:8px;border:1px solid var(--line)}
+  .reftitle{font-weight:600;color:var(--ink);font-size:12px;margin-bottom:5px}
+  .reftext{color:var(--ink2);line-height:1.65;white-space:pre-wrap}
   .lay{font-family:var(--mono);font-size:10px;padding:0 5px;border-radius:4px;margin-left:4px}
   .lay.all{background:var(--blue-bg);color:var(--blue)}
   .lay.finance{background:var(--brass-bg);color:var(--brass)}
@@ -392,16 +401,23 @@ async function ask(){
   const tk = turn.querySelector("#tk"); if(tk) tk.removeAttribute("id");
   const timer = setInterval(()=>{ if(tk && tk.isConnected) tk.textContent = `思考中… ${secs()}s`; }, 100);
 
-  let text = "", sources = [], started = false;
+  let text = "", sources = [], passages = [], started = false;
   const finish = (took)=>{
     clearInterval(timer);
-    // 来源显示准则名（没有 frontmatter 的文档退回文件名），附发文字号与财政部原文链接
+    // 来源：每个单独一行（准则名 + 发文字号 + 层 + 官方原文链接）
     const cites = sources.map(s=>{
       const label = s.title || s.source;
       const no = s.doc_no ? `<span class="docno">${esc(s.doc_no)}</span>` : "";
-      const link = s.url ? ` <a class="srclink" href="${esc(s.url)}" target="_blank" rel="noopener">官方原文</a>` : "";
-      return `<button class="srcbtn" data-src="${esc(s.source)}">${esc(label)}</button>${no}<span class="lay ${s.layer}">${s.layer}</span>${link}`;
-    }).join("；");
+      const link = s.url ? ` <a class="srclink" href="${esc(s.url)}" target="_blank" rel="noopener">官方原文↗</a>` : "";
+      return `<div class="citerow"><button class="srcbtn" data-src="${esc(s.source)}">${esc(label)}</button>${no}<span class="lay ${s.layer}">${s.layer}</span>${link}</div>`;
+    }).join("");
+    // 参考原文：回答实际依据的片段，自动展示（可折叠）
+    let refs = "";
+    if(passages.length){
+      refs = `<details class="refs" open><summary>📄 参考原文（${passages.length} 段，点击折叠）</summary>`
+        + passages.map(p=>`<div class="refitem"><div class="reftitle">${esc(p.title)}<span class="lay ${p.layer}">${p.layer}</span></div><div class="reftext">${esc(p.text)}</div></div>`).join("")
+        + `</details>`;
+    }
     // 每次回答后再给几个可点的追问建议（轮换，不总是同 4 个）
     let followup = "";
     if(curSuggest.length){
@@ -411,7 +427,8 @@ async function ask(){
         + picks.map(q=>`<button class="sg fu">${esc(q)}</button>`).join("") + `</div>`;
     }
     ansEl.innerHTML = `<div class="body">${esc(text)}</div>`
-      + (cites?`<div class="cite">来源：${cites}　<span style="color:var(--muted)">（点击查看原文）</span></div>`:"")
+      + (cites?`<div class="cite"><div class="citehdr">来源（点标题看应用内原文）</div>${cites}</div>`:"")
+      + refs
       + `<div class="took">思考用时 ${took}</div>`
       + followup;
     ansEl.querySelectorAll(".srcbtn").forEach(b=> b.onclick = ()=> openDoc(b.dataset.src, text));
@@ -447,7 +464,7 @@ async function ask(){
           bodyEl.innerHTML = esc(text) + `<span class="cursor"></span>`;
           $("scroll").scrollTop = $("scroll").scrollHeight;
         }
-        else if(ev === "done"){ sources = d.sources || []; finish(`${(d.elapsed_ms/1000).toFixed(1)}s`); return; }
+        else if(ev === "done"){ sources = d.sources || []; passages = d.passages || []; finish(`${(d.elapsed_ms/1000).toFixed(1)}s`); return; }
         else if(ev === "error"){ throw new Error(d.message); }
       }
     }

@@ -1,14 +1,27 @@
 """配置。生产环境务必用环境变量覆盖 SECRET_KEY。"""
 import os
+from dotenv import load_dotenv
+load_dotenv()   # 读取项目根的 .env（含云端模型 API key 等），.env 已被 gitignore
 
 # 认证
 SECRET_KEY = os.getenv("SECRET_KEY", "change-me-to-a-long-random-string-please")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("TOKEN_MINUTES", "480"))
 
+# 生成模型：provider = "ollama"(本地) 或 "openai"(任意 OpenAI 兼容云端 API)
+# 换云端大模型只需设环境变量，无需改代码：
+#   LLM_PROVIDER=openai
+#   OPENAI_BASE_URL=https://api.deepseek.com/v1   (Kimi: https://api.moonshot.cn/v1；GLM: https://open.bigmodel.cn/api/paas/v4)
+#   OPENAI_API_KEY=sk-xxxx
+#   OPENAI_MODEL=deepseek-chat
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "ollama")
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "deepseek-chat")
+
 # 本地模型（Ollama）
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 LLM_MODEL = os.getenv("LLM_MODEL", "qwen3:8b")
-EMBED_MODEL = os.getenv("EMBED_MODEL", "bge-m3")
+EMBED_MODEL = os.getenv("EMBED_MODEL", "bge-m3")   # 向量化始终走本地,免费且检索够用
 
 # 本地向量库（Chroma，内嵌，无需另起服务）
 CHROMA_PATH = os.getenv("CHROMA_PATH", "./data/chroma")

@@ -18,7 +18,7 @@ import security
 from config import LLM_MODEL, MAX_UPLOAD_MB
 from ingest import EXTS, LAYER_DIRS, ingest_file
 from permissions import is_admin, allowed_layers
-from rag import answer, retrieve, stream_generate, list_docs, get_doc, sources_for
+from rag import answer, retrieve, stream_generate, list_docs, get_doc, sources_for, used_passages
 
 
 def sse(event: str, data: dict) -> str:
@@ -175,8 +175,10 @@ def query_stream(body: QueryIn, user=Depends(current_user)):
         except Exception as e:
             yield sse("error", {"message": f"生成失败：{type(e).__name__}: {e}"})
             return
+        srcs = sources_for(text, ctxs)
         yield sse("done", {"elapsed_ms": int((time.time() - t0) * 1000),
-                           "sources": sources_for(text, ctxs)})
+                           "sources": srcs,
+                           "passages": used_passages(ctxs) if srcs else []})
 
     return StreamingResponse(events(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})

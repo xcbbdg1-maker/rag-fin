@@ -9,7 +9,8 @@ import time
 import requests
 import chromadb
 from config import (OLLAMA_URL, LLM_MODEL, EMBED_MODEL, CHROMA_PATH, COLLECTION,
-                    TOP_K, MAX_DISTANCE, REL_MARGIN, CITE_MARGIN)
+                    TOP_K, MAX_DISTANCE, REL_MARGIN, CITE_MARGIN,
+                    LLM_PROVIDER, OPENAI_BASE_URL, OPENAI_API_KEY, OPENAI_MODEL)
 from permissions import allowed_layers
 
 _client = None
@@ -24,12 +25,12 @@ def collection():
     return _client.get_or_create_collection(COLLECTION, metadata={"hnsw:space": "cosine"})
 
 
-def _post(url: str, payload: dict, timeout: int, tries: int = 3):
+def _post(url: str, payload: dict, timeout: int, tries: int = 3, headers: dict = None):
     """带退避重试。模型冷加载时首次调用容易超时,重试一次通常就好了。"""
     last = None
     for attempt in range(1, tries + 1):
         try:
-            r = requests.post(url, json=payload, timeout=timeout)
+            r = requests.post(url, json=payload, timeout=timeout, headers=headers)
             r.raise_for_status()
             return r.json()
         except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
@@ -126,15 +127,20 @@ def _context(contexts) -> str:
 _THINK_TAG = re.compile(r"<think>.*?</think>\s*", re.S)
 
 
+def _use_cloud() -> bool:
+    return LLM_PROVIDER == "openai" and bool(OPENAI_API_KEY and OPENAI_BASE_URL)
+
+
 def generate(question: str, contexts) -> str:
     ctx = _context(contexts)
-    payload = {
-        "model": LLM_MODEL,
-        "messages": [{"role": "user", "content": _PROMPT.format(context=ctx, question=question)}],
-        "stream": False,
-        "think": False,            # qwen3 等思考型模型:不要把推理过程混进答案
-        "options": {"temperature": 0.1},
-    }
+    msgs = [{"role": "user", "content": _PROMPT.format(context=ctx, question=question)}]
+    if _use_cloud():
+        data = _post(f"{OPENAI_BASE_URL.rstrip('/')}/chat/completions",
+                     {"model": OPENAI_MODEL, "messages": msgs, "temperature": 0.1, "stream": False},
+                     timeout=300, headers={"Authorization": f"Bearer {OPENAI_API_KEY}"})
+        return (data.get("choices") or [{}])[0].get("message", {}).get("content", "").strip()
+    payload = {"model": LLM_MODEL, "messages": msgs, "stream": False, "think": False,
+               "options": {"temperature": 0.1}}
     try:
         data = _post(f"{OLLAMA_URL}/api/chat", payload, timeout=300)
     except requests.exceptions.HTTPError:
@@ -147,13 +153,28 @@ def generate(question: str, contexts) -> str:
 def stream_generate(question: str, contexts):
     """流式生成：逐块 yield 文本，避免用户盯着静止的「检索中」等几十秒。"""
     ctx = _context(contexts)
-    payload = {
-        "model": LLM_MODEL,
-        "messages": [{"role": "user", "content": _PROMPT.format(context=ctx, question=question)}],
-        "stream": True,
-        "think": False,
-        "options": {"temperature": 0.1},
-    }
+    msgs = [{"role": "user", "content": _PROMPT.format(context=ctx, question=question)}]
+    if _use_cloud():
+        with requests.post(f"{OPENAI_BASE_URL.rstrip('/')}/chat/completions",
+                           json={"model": OPENAI_MODEL, "messages": msgs, "temperature": 0.1, "stream": True},
+                           headers={"Authorization": f"Bearer {OPENAI_API_KEY}"},
+                           timeout=600, stream=True) as r:
+            r.raise_for_status()
+            for line in r.iter_lines():
+                if not line:
+                    continue
+                s = line.decode("utf-8") if isinstance(line, bytes) else line
+                if not s.startswith("data:"):
+                    continue
+                s = s[5:].strip()
+                if s == "[DONE]":
+                    break
+                piece = (json.loads(s).get("choices") or [{}])[0].get("delta", {}).get("content", "")
+                if piece:
+                    yield piece
+        return
+    payload = {"model": LLM_MODEL, "messages": msgs, "stream": True, "think": False,
+               "options": {"temperature": 0.1}}
     with requests.post(f"{OLLAMA_URL}/api/chat", json=payload, timeout=600, stream=True) as r:
         r.raise_for_status()
         for line in r.iter_lines():
@@ -231,6 +252,18 @@ def sources_for(answer_text: str, contexts) -> list:
     if not answer_text or NO_CONTENT in answer_text:
         return []
     return cited_sources(contexts)
+
+
+def used_passages(contexts, k: int = 4) -> list:
+    """回答实际依据的原文片段(供前端自动展示"参考原文")。去掉入库时加的【标题】前缀。"""
+    out = []
+    for c in contexts[:k]:
+        txt = re.sub(r'^【[^】]*】\s*', '', c.get("text", "")).strip()
+        out.append({
+            "source": c.get("source"), "title": c.get("title") or c.get("source"),
+            "layer": c.get("layer"), "text": txt[:600],
+        })
+    return out
 
 
 def answer(question: str, roles) -> dict:
