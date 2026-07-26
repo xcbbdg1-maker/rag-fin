@@ -35,7 +35,7 @@
   .err{color:var(--rust);font-size:13px;margin-top:12px;min-height:18px}
 
   /* 主界面 */
-  .app{display:grid;grid-template-columns:260px 1fr;grid-template-rows:minmax(0,1fr);height:100vh;overflow:hidden}
+  .app{display:grid;grid-template-columns:320px 1fr;grid-template-rows:minmax(0,1fr);height:100vh;overflow:hidden}
   .side{background:#12201b;color:#dfe8e2;display:flex;flex-direction:column;min-height:0;overflow:hidden}
   .brand{padding:20px;border-bottom:1px solid rgba(255,255,255,.09)}
   .brand h1{font-family:var(--serif);font-size:18px;margin:0;color:#fff}
@@ -79,8 +79,12 @@
   .doclist{display:flex;flex-direction:column;gap:5px}
   .doccount{font-family:var(--mono);font-size:10px;letter-spacing:0;text-transform:none;color:#9fb3a8;background:rgba(255,255,255,.08);padding:1px 6px;border-radius:6px;margin-left:6px}
   .docgroup{margin-bottom:8px}
-  .docgrouphdr{display:flex;align-items:center;font-size:11px;color:#9db3a7;font-weight:600;padding:4px 8px 3px;border-bottom:1px solid rgba(255,255,255,.06);margin-bottom:2px}
+  .docgrouphdr{display:flex;align-items:center;gap:6px;font-size:11px;color:#9db3a7;font-weight:600;padding:5px 8px 4px;border-bottom:1px solid rgba(255,255,255,.06);margin-bottom:2px;cursor:pointer;user-select:none;width:100%;background:none;border-left:none;border-right:none;border-top:none;text-align:left;font-family:inherit}
+  .docgrouphdr:hover{color:#cfe0d6}
+  .docgrouphdr .caret{font-size:9px;transition:transform .15s;display:inline-block;color:#7f978b}
+  .docgroup.collapsed .caret{transform:rotate(-90deg)}
   .docgrouphdr .cnt{margin-left:auto;font-family:var(--mono);font-size:10px;color:#7f978b;background:rgba(255,255,255,.07);padding:0 5px;border-radius:5px}
+  .docgroup.collapsed .docitems{display:none}
   .docitem{display:flex;align-items:center;gap:6px;background:none;border:none;padding:6px 8px;border-radius:7px;
            color:#cfe0d6;font-family:var(--sans);font-size:12px;text-align:left;cursor:pointer;width:100%;line-height:1.35}
   .docitem:hover{background:rgba(255,255,255,.07)}
@@ -295,13 +299,15 @@ async function loadDocs(){
     docs.forEach(x=>{ (groups[categoryOf(x.source)] ||= []).push(x); });
     const cats = CAT_ORDER.filter(c=>groups[c]);
     $("docCount").textContent = `${docs.length} 份`;
+    // 文件多的组默认收起（超过 8 个），点表头展开/收起
     $("docList").innerHTML = cats.map(c=>`
-      <div class="docgroup">
-        <div class="docgrouphdr">${esc(c)}<span class="cnt">${groups[c].length}</span></div>
-        ${groups[c].map(x=>`<button class="docitem" data-src="${esc(x.source)}">
+      <div class="docgroup${groups[c].length>8?" collapsed":""}">
+        <button class="docgrouphdr"><span class="caret">▾</span>${esc(c)}<span class="cnt">${groups[c].length}</span></button>
+        <div class="docitems">${groups[c].map(x=>`<button class="docitem" data-src="${esc(x.source)}">
            <span class="nm" title="${esc(x.source)}">${esc(x.source)}</span>
-           <span class="lay ${x.layer}">${x.layer}</span></button>`).join("")}
+           <span class="lay ${x.layer}">${x.layer}</span></button>`).join("")}</div>
       </div>`).join("");
+    document.querySelectorAll(".docgrouphdr").forEach(h=> h.onclick = ()=> h.parentElement.classList.toggle("collapsed"));
     document.querySelectorAll(".docitem").forEach(b=> b.onclick = ()=> openDoc(b.dataset.src));
 
     // 示例问题：只给用户权限内的层；finance 用户优先看准则对照类
