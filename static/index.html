@@ -77,6 +77,10 @@
 
   /* 侧栏文档清单 */
   .doclist{display:flex;flex-direction:column;gap:5px}
+  .doccount{font-family:var(--mono);font-size:10px;letter-spacing:0;text-transform:none;color:#9fb3a8;background:rgba(255,255,255,.08);padding:1px 6px;border-radius:6px;margin-left:6px}
+  .docgroup{margin-bottom:8px}
+  .docgrouphdr{display:flex;align-items:center;font-size:11px;color:#9db3a7;font-weight:600;padding:4px 8px 3px;border-bottom:1px solid rgba(255,255,255,.06);margin-bottom:2px}
+  .docgrouphdr .cnt{margin-left:auto;font-family:var(--mono);font-size:10px;color:#7f978b;background:rgba(255,255,255,.07);padding:0 5px;border-radius:5px}
   .docitem{display:flex;align-items:center;gap:6px;background:none;border:none;padding:6px 8px;border-radius:7px;
            color:#cfe0d6;font-family:var(--sans);font-size:12px;text-align:left;cursor:pointer;width:100%;line-height:1.35}
   .docitem:hover{background:rgba(255,255,255,.07)}
@@ -139,7 +143,7 @@
     <div class="brand"><h1>财务知识库</h1><p>本地自建 · RAG</p></div>
     <div class="who"><div class="nm" id="curName"></div><div class="rl" id="curRoles"></div></div>
     <div class="sec">
-      <h3>知识库（你可见的）</h3>
+      <h3>知识库（你可见的）<span id="docCount" class="doccount"></span></h3>
       <div id="docList" class="doclist"></div>
     </div>
     <div class="sec">
@@ -154,7 +158,7 @@
   <main class="main">
     <div class="scroll" id="scroll"><div class="wrap"><div id="log"></div>
       <div class="empty" id="empty">
-        <p>在下方输入财务/制度/准则相关问题。你能看到的内容由你的角色决定。</p>
+        <p>知识库已涵盖<b>中国企业会计准则</b>（主文本+解释）、<b>中美/国际准则差异对照</b>（KPMG/EY，收入·租赁·金融工具·合并·存货·税）与制度口径。下面挑一个试问，或直接输入问题。</p>
         <div id="suggestBox" class="suggest"></div>
       </div>
     </div></div>
@@ -256,24 +260,54 @@ $("loginBtn").onclick = doLogin;
 $("lp").addEventListener("keydown", e=>{ if(e.key==="Enter") doLogin(); });
 
 // ---- 知识库清单（侧栏）+ 示例问题（空状态）----
+// 示例问题按角色权限给：finance 用户优先展示准则与中美/国际对照，让新内容一眼可见。
 const SUGGEST = {
-  all: ["报销单要多久内提交？", "什么发票不能报销？", "报销要走哪几步审批？"],
-  finance: ["业务招待费怎么税前扣除？", "政府补助如何区分与资产相关还是与收益相关？", "月结时折旧在哪一步计提？"],
+  all: ["报销单要多久内提交？", "什么发票不能报销？", "出差住宿费报销标准是多少？"],
+  finance: [
+    "存货计价，US GAAP 允许后进先出法吗？和 IFRS 差在哪？",
+    "融资租赁承租人初始计量，US GAAP 和 IFRS 有什么不同？",
+    "金融资产减值，IFRS 9 的预期信用损失和 US GAAP 的 CECL 有何区别？",
+    "商誉减值测试，美国准则和国际准则的方法差异？",
+    "如何编制现金流量表？",
+    "政府补助的会计处理",
+  ],
 };
+
+// 文档按来源名前缀归类，让知识库广度一目了然
+function categoryOf(source){
+  if(source.startsWith("A_准则")) return "中国准则主文本";
+  if(source.startsWith("B_解释")) return "中国准则解释";
+  if(source.startsWith("B_对照")) return "中美/国际准则对照";
+  if(source.startsWith("C_"))    return "索引与三方对照";
+  if(source.startsWith("Z_"))    return "历史版本";
+  return "制度与口径";
+}
+const CAT_ORDER = ["中美/国际准则对照","中国准则主文本","中国准则解释","索引与三方对照","制度与口径","历史版本"];
+
 async function loadDocs(){
   try{
     const d = await api("/api/docs","GET");
     const docs = d.docs || [];
-    $("docList").innerHTML = docs.length
-      ? docs.map(x=>`<button class="docitem" data-src="${esc(x.source)}">
+    if(!docs.length){ $("docList").innerHTML = `<div class="none">知识库为空，请先跑 ingest.py</div>`; return; }
+
+    // 分组
+    const groups = {};
+    docs.forEach(x=>{ (groups[categoryOf(x.source)] ||= []).push(x); });
+    const cats = CAT_ORDER.filter(c=>groups[c]);
+    $("docCount").textContent = `${docs.length} 份`;
+    $("docList").innerHTML = cats.map(c=>`
+      <div class="docgroup">
+        <div class="docgrouphdr">${esc(c)}<span class="cnt">${groups[c].length}</span></div>
+        ${groups[c].map(x=>`<button class="docitem" data-src="${esc(x.source)}">
            <span class="nm" title="${esc(x.source)}">${esc(x.source)}</span>
-           <span class="lay ${x.layer}">${x.layer}</span></button>`).join("")
-      : `<div class="none">知识库为空，请先跑 ingest.py</div>`;
+           <span class="lay ${x.layer}">${x.layer}</span></button>`).join("")}
+      </div>`).join("");
     document.querySelectorAll(".docitem").forEach(b=> b.onclick = ()=> openDoc(b.dataset.src));
 
-    // 示例问题：只给用户权限内的层
+    // 示例问题：只给用户权限内的层；finance 用户优先看准则对照类
     const layers = [...new Set(docs.map(x=>x.layer))];
-    const qs = layers.flatMap(l=> SUGGEST[l] || []).slice(0,4);
+    const pool = layers.includes("finance") ? SUGGEST.finance : (SUGGEST[layers[0]] || []);
+    const qs = pool.slice(0,4);
     $("suggestBox").innerHTML = qs.map(q=>`<button class="sg">${esc(q)}</button>`).join("");
     document.querySelectorAll(".sg").forEach(b=> b.onclick = ()=>{ $("q").value = b.textContent; ask(); });
   }catch(e){ $("docList").innerHTML = `<div class="none">${esc(e.message)}</div>`; }
