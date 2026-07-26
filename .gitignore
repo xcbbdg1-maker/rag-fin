@@ -1,0 +1,14 @@
+data/chroma/
+data/users.db
+.venv/
+__pycache__/
+*.pyc
+.env
+
+# 知识库文档本身不进 git：真实财务文档一旦提交就永久留在仓库历史里，
+# 事后 rm + commit 删不掉（要 filter-repo/BFG 改写历史）。只保留目录骨架。
+data/docs/**
+!data/docs/all/
+!data/docs/finance/
+!data/docs/all/.gitkeep
+!data/docs/finance/.gitkeep

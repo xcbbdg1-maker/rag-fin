@@ -1,0 +1,15 @@
+fastapi==0.115.*
+uvicorn[standard]==0.30.*
+pydantic==2.*
+passlib[bcrypt]==1.7.*
+# passlib 1.7.4 读 bcrypt.__about__ 取版本，且内部自检会传 >72 字节的口令；
+# bcrypt>=4.1 删了该属性、5.x 对超长口令直接抛错 → 必须钉在 4.0.x。
+bcrypt==4.0.1
+python-jose[cryptography]==3.*
+# 0.5.* 依赖 chroma-hnswlib，在 Python 3.13 上无预编译 wheel，需要 MSVC 才能装。
+# 1.x 改用 Rust 索引，不再有该依赖；用到的 PersistentClient/upsert/query(where=) 行为一致。
+chromadb>=1.5,<2
+requests==2.*
+pypdf==5.*
+python-docx==1.*
+python-multipart==0.0.20

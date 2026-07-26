@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>财务知识库助手 · 本地自建</title>
+<style>
+  :root{
+    --ink:#16241f; --ink2:#4a5b54; --muted:#93a099;
+    --paper:#eef1ee; --card:#fff; --line:#d8e0da; --line2:#e7ece8;
+    --green:#0f6e56; --green-bg:#e2efe8;
+    --brass:#9a6c15; --brass-bg:#f5ead2;
+    --blue:#2c6082; --blue-bg:#e3edf3;
+    --rust:#9e3319; --rust-bg:#f6e3dd; --rust-line:#e6c4b7;
+    --serif:Georgia,"Times New Roman",serif;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+    --mono:ui-monospace,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{font-family:var(--sans);color:var(--ink);background:var(--paper);font-size:15px;line-height:1.6}
+  .hide{display:none!important}
+
+  /* 登录 */
+  .login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+  .login{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:30px 28px;width:100%;max-width:360px}
+  .login h1{font-family:var(--serif);font-size:22px;margin:0 0 4px}
+  .login .sub{color:var(--muted);font-size:13px;margin-bottom:22px}
+  label{display:block;font-size:12px;color:var(--ink2);margin:12px 0 5px}
+  input{width:100%;border:1px solid var(--line);border-radius:9px;padding:10px 12px;font-size:14px;font-family:var(--sans);color:var(--ink);outline:none}
+  input:focus{border-color:var(--green)}
+  .btn{background:var(--green);color:#fff;border:0;border-radius:9px;padding:10px 16px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit}
+  .btn:hover{background:#0c5946}
+  .btn.block{width:100%;margin-top:20px}
+  .err{color:var(--rust);font-size:13px;margin-top:12px;min-height:18px}
+
+  /* 主界面 */
+  .app{display:grid;grid-template-columns:260px 1fr;grid-template-rows:minmax(0,1fr);height:100vh;overflow:hidden}
+  .side{background:#12201b;color:#dfe8e2;display:flex;flex-direction:column;min-height:0;overflow:hidden}
+  .brand{padding:20px;border-bottom:1px solid rgba(255,255,255,.09)}
+  .brand h1{font-family:var(--serif);font-size:18px;margin:0;color:#fff}
+  .brand p{margin:5px 0 0;font-size:12px;color:#8fa79b}
+  .who{padding:16px 20px;border-bottom:1px solid rgba(255,255,255,.09)}
+  .who .nm{font-weight:600}
+  .who .rl{margin-top:6px;display:flex;gap:5px;flex-wrap:wrap}
+  .rl .chip{font-family:var(--mono);font-size:10.5px;padding:1px 6px;border-radius:5px;background:rgba(255,255,255,.12);color:#c4d2ca}
+  .side .sec{padding:16px 20px;flex:1;overflow-y:auto;min-height:0}
+  .side .sec h3{font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#7f978b;margin:0 0 10px}
+  .side .lite{background:transparent;border:1px solid rgba(255,255,255,.2);color:#dfe8e2;border-radius:8px;padding:8px 10px;font-size:13px;cursor:pointer;width:100%;text-align:left;font-family:inherit;margin-bottom:6px}
+  .side .lite:hover{background:rgba(255,255,255,.06)}
+  .side .foot{padding:14px 20px;border-top:1px solid rgba(255,255,255,.09)}
+
+  .main{display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden}
+  .scroll{flex:1;min-height:0;overflow-y:auto;padding:22px 26px}
+  .wrap{max-width:820px;margin:0 auto}
+  .empty{color:var(--muted);text-align:center;padding:40px 0;font-size:14px}
+  .turn{margin-bottom:20px}
+  .ask{display:flex;justify-content:flex-end;margin-bottom:9px}
+  .ask .b{background:var(--ink);color:#f2f5f2;padding:9px 14px;border-radius:14px 14px 3px 14px;max-width:80%;font-size:14px}
+  .ans{background:var(--card);border:1px solid var(--line);border-radius:3px 14px 14px 14px;overflow:hidden}
+  .ans .body{padding:14px 17px;white-space:pre-wrap;font-size:14.5px}
+  .ans .cite{border-top:1px solid var(--line2);padding:9px 17px;font-size:12px;color:var(--ink2)}
+  .ans .cite b{color:var(--ink)}
+  .lay{font-family:var(--mono);font-size:10px;padding:0 5px;border-radius:4px;margin-left:4px}
+  .lay.all{background:var(--blue-bg);color:var(--blue)}
+  .lay.finance{background:var(--brass-bg);color:var(--brass)}
+  .pending{color:var(--muted);font-size:13px;padding:4px 0}
+
+  .composer{border-top:1px solid var(--line);background:var(--card);padding:14px 26px}
+  .cin{max-width:820px;margin:0 auto;display:flex;gap:10px}
+
+  /* 弹窗（改密 / 建账号） */
+  .modal{position:fixed;inset:0;background:rgba(14,26,21,.42);display:flex;align-items:center;justify-content:center;padding:20px;z-index:50}
+  .sheet{background:var(--card);border-radius:14px;max-width:420px;width:100%;padding:22px}
+  .sheet h2{font-size:17px;margin:0 0 14px}
+  .sheet .row{display:flex;gap:8px;margin-top:14px;justify-content:flex-end}
+
+  /* 侧栏文档清单 */
+  .doclist{display:flex;flex-direction:column;gap:5px}
+  .docitem{display:flex;align-items:center;gap:6px;background:none;border:none;padding:6px 8px;border-radius:7px;
+           color:#cfe0d6;font-family:var(--sans);font-size:12px;text-align:left;cursor:pointer;width:100%;line-height:1.35}
+  .docitem:hover{background:rgba(255,255,255,.07)}
+  .docitem .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .doclist .none{color:#7f978b;font-size:12px;padding:4px 8px}
+
+  /* 空状态示例问题 */
+  .suggest{display:flex;flex-direction:column;gap:8px;align-items:center;margin-top:18px}
+  .sg{background:var(--card);border:1px solid var(--line);border-radius:20px;padding:7px 15px;font-size:13px;
+      color:var(--ink2);font-family:var(--sans);cursor:pointer;max-width:100%}
+  .sg:hover{border-color:var(--green);color:var(--green)}
+
+  /* 来源可点击 */
+  .srcbtn{background:none;border:none;padding:0;font:inherit;color:var(--ink);font-weight:600;
+          cursor:pointer;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px}
+  .srcbtn:hover{color:var(--green)}
+  .docno{margin-left:5px;font-size:11px;color:var(--muted)}
+  .srclink{margin-left:5px;font-size:11px;color:var(--green);text-decoration:underline;text-underline-offset:2px}
+
+  /* 思考计时 */
+  .think{color:var(--muted);font-size:12px;font-family:var(--mono)}
+  .ans .took{border-top:1px solid var(--line2);padding:6px 17px 0;font-size:11px;color:var(--muted);font-family:var(--mono)}
+  .cursor{display:inline-block;width:7px;height:15px;background:var(--green);vertical-align:-2px;
+          margin-left:2px;animation:blink 1s step-end infinite}
+  @keyframes blink{50%{opacity:0}}
+
+  /* 原文弹窗 */
+  .sheet.wide{max-width:820px;display:flex;flex-direction:column;max-height:86vh}
+  .docmeta{font-size:12px;color:var(--muted);margin:-8px 0 12px}
+  .docbody{overflow-y:auto;border:1px solid var(--line);border-radius:10px;padding:16px 18px;background:#fbfcfb;flex:1}
+  .docbody .ck{white-space:pre-wrap;line-height:1.75;padding:10px 12px;border-radius:8px;margin-bottom:6px;font-size:14px}
+  .docbody .ck.hit{background:var(--green-bg);box-shadow:inset 3px 0 0 var(--green)}
+  .docbody .cknum{font-family:var(--mono);font-size:10px;color:var(--muted);margin-bottom:3px}
+  .btn.ghost{background:transparent;color:var(--ink2);border:1px solid var(--line)}
+  .rolebox{display:flex;gap:14px;margin-top:6px;font-size:13px}
+  .rolebox label{display:flex;align-items:center;gap:5px;margin:0;color:var(--ink)}
+  .rolebox input{width:auto}
+  .ok{color:var(--green);font-size:13px;margin-top:10px;min-height:18px}
+</style>
+</head>
+<body>
+
+<!-- 登录页 -->
+<div class="login-wrap" id="loginView">
+  <div class="login">
+    <h1>财务知识库助手</h1>
+    <div class="sub">本地自建 · 权限感知 RAG</div>
+    <label>用户名</label>
+    <input id="lu" autocomplete="username" placeholder="admin / finance / employee">
+    <label>密码</label>
+    <input id="lp" type="password" autocomplete="current-password" placeholder="••••••••">
+    <button class="btn block" id="loginBtn">登录</button>
+    <div class="err" id="loginErr"></div>
+  </div>
+</div>
+
+<!-- 主界面 -->
+<div class="app hide" id="appView">
+  <aside class="side">
+    <div class="brand"><h1>财务知识库</h1><p>本地自建 · RAG</p></div>
+    <div class="who"><div class="nm" id="curName"></div><div class="rl" id="curRoles"></div></div>
+    <div class="sec">
+      <h3>知识库（你可见的）</h3>
+      <div id="docList" class="doclist"></div>
+    </div>
+    <div class="sec">
+      <h3 id="adminTitle" class="hide">管理</h3>
+      <button class="lite hide" id="uploadBtn">+ 上传文档</button>
+      <button class="lite hide" id="newAcctBtn">+ 新建账号</button>
+      <button class="lite" id="pwdBtn">修改我的密码</button>
+    </div>
+    <div class="foot"><button class="lite" id="logoutBtn">退出登录</button></div>
+  </aside>
+
+  <main class="main">
+    <div class="scroll" id="scroll"><div class="wrap"><div id="log"></div>
+      <div class="empty" id="empty">
+        <p>在下方输入财务/制度/准则相关问题。你能看到的内容由你的角色决定。</p>
+        <div id="suggestBox" class="suggest"></div>
+      </div>
+    </div></div>
+    <div class="composer"><div class="cin">
+      <input id="q" placeholder="输入问题，回车发送…" autocomplete="off">
+      <button class="btn" id="sendBtn">提问</button>
+    </div></div>
+  </main>
+</div>
+
+<!-- 原文查看弹窗 -->
+<div class="modal hide" id="docModal">
+  <div class="sheet wide">
+    <h2 id="docTitle"></h2>
+    <div class="docmeta" id="docMeta"></div>
+    <div class="docbody" id="docBody"></div>
+    <div class="row"><button class="btn ghost" data-close="docModal">关闭</button></div>
+  </div>
+</div>
+
+<!-- 改密弹窗 -->
+<div class="modal hide" id="pwdModal">
+  <div class="sheet">
+    <h2>修改我的密码</h2>
+    <label>新密码（至少 8 位）</label>
+    <input id="np" type="password">
+    <div class="ok" id="pwdMsg"></div>
+    <div class="row"><button class="btn ghost" data-close="pwdModal">取消</button><button class="btn" id="pwdSave">保存</button></div>
+  </div>
+</div>
+
+<!-- 上传文档弹窗 -->
+<div class="modal hide" id="upModal">
+  <div class="sheet">
+    <h2>上传文档</h2>
+    <label>文件（PDF / DOCX / MD / TXT）</label>
+    <input id="uf" type="file" accept=".pdf,.docx,.md,.txt">
+    <label>归入哪一层</label>
+    <div class="rolebox">
+      <label><input type="radio" name="ulayer" value="all"> all（全员可见：报销制度、发票要求等）</label>
+      <label><input type="radio" name="ulayer" value="finance" checked> finance（仅财务可见：准则、科目口径等）</label>
+    </div>
+    <div class="ok" id="upMsg"></div>
+    <div class="row"><button class="btn ghost" data-close="upModal">取消</button><button class="btn" id="upSave">上传并入库</button></div>
+  </div>
+</div>
+
+<!-- 新建账号弹窗 -->
+<div class="modal hide" id="acctModal">
+  <div class="sheet">
+    <h2>新建账号</h2>
+    <label>用户名</label>
+    <input id="au">
+    <label>初始密码（至少 8 位）</label>
+    <input id="ap" type="password">
+    <label>角色</label>
+    <div class="rolebox">
+      <label><input type="checkbox" class="arole" value="employee" checked> employee</label>
+      <label><input type="checkbox" class="arole" value="finance"> finance</label>
+      <label><input type="checkbox" class="arole" value="admin"> admin</label>
+    </div>
+    <div class="ok" id="acctMsg"></div>
+    <div class="row"><button class="btn ghost" data-close="acctModal">取消</button><button class="btn" id="acctSave">创建</button></div>
+  </div>
+</div>
+
+<script>
+let TOKEN = null, ROLES = [];
+const $ = id => document.getElementById(id);
+async function api(path, method, body){
+  const h = {"Content-Type":"application/json"};
+  if(TOKEN) h["Authorization"] = "Bearer " + TOKEN;
+  const r = await fetch(path, {method, headers:h, body: body?JSON.stringify(body):undefined});
+  const data = await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(data.detail || ("请求失败 "+r.status));
+  return data;
+}
+function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");}
+
+// 登录
+async function doLogin(){
+  $("loginErr").textContent = "";
+  try{
+    const d = await api("/api/login","POST",{username:$("lu").value.trim(), password:$("lp").value});
+    TOKEN = d.access_token; ROLES = d.roles;
+    $("curName").textContent = d.username;
+    $("curRoles").innerHTML = d.roles.map(r=>`<span class="chip">${r}</span>`).join("");
+    const admin = d.roles.includes("admin");
+    $("adminTitle").classList.toggle("hide", !admin);
+    $("newAcctBtn").classList.toggle("hide", !admin);
+    $("uploadBtn").classList.toggle("hide", !admin);
+    $("loginView").classList.add("hide");
+    $("appView").classList.remove("hide");
+    $("q").focus();
+    loadDocs();
+  }catch(e){ $("loginErr").textContent = e.message; }
+}
+$("loginBtn").onclick = doLogin;
+$("lp").addEventListener("keydown", e=>{ if(e.key==="Enter") doLogin(); });
+
+// ---- 知识库清单（侧栏）+ 示例问题（空状态）----
+const SUGGEST = {
+  all: ["报销单要多久内提交？", "什么发票不能报销？", "报销要走哪几步审批？"],
+  finance: ["业务招待费怎么税前扣除？", "政府补助如何区分与资产相关还是与收益相关？", "月结时折旧在哪一步计提？"],
+};
+async function loadDocs(){
+  try{
+    const d = await api("/api/docs","GET");
+    const docs = d.docs || [];
+    $("docList").innerHTML = docs.length
+      ? docs.map(x=>`<button class="docitem" data-src="${esc(x.source)}">
+           <span class="nm" title="${esc(x.source)}">${esc(x.source)}</span>
+           <span class="lay ${x.layer}">${x.layer}</span></button>`).join("")
+      : `<div class="none">知识库为空，请先跑 ingest.py</div>`;
+    document.querySelectorAll(".docitem").forEach(b=> b.onclick = ()=> openDoc(b.dataset.src));
+
+    // 示例问题：只给用户权限内的层
+    const layers = [...new Set(docs.map(x=>x.layer))];
+    const qs = layers.flatMap(l=> SUGGEST[l] || []).slice(0,4);
+    $("suggestBox").innerHTML = qs.map(q=>`<button class="sg">${esc(q)}</button>`).join("");
+    document.querySelectorAll(".sg").forEach(b=> b.onclick = ()=>{ $("q").value = b.textContent; ask(); });
+  }catch(e){ $("docList").innerHTML = `<div class="none">${esc(e.message)}</div>`; }
+}
+
+// ---- 原文弹窗：在页面内滚动查看，不用打开 Word ----
+async function openDoc(source, hitText){
+  $("docTitle").textContent = source;
+  $("docMeta").textContent = "载入中…";
+  $("docBody").innerHTML = "";
+  $("docModal").classList.remove("hide");
+  try{
+    const d = await api("/api/doc?source=" + encodeURIComponent(source), "GET");
+    $("docMeta").innerHTML = `可见层 <span class="lay ${d.layer}">${d.layer}</span> · 共 ${d.chunks.length} 个片段`;
+    $("docBody").innerHTML = d.chunks.map(c=>{
+      const hit = hitText && c.text.includes(hitText.slice(0,30));
+      return `<div class="ck ${hit?"hit":""}"><div class="cknum">片段 ${c.idx+1}</div>${esc(c.text)}</div>`;
+    }).join("");
+    const first = $("docBody").querySelector(".ck.hit");
+    if(first) first.scrollIntoView({block:"center"});
+  }catch(e){ $("docMeta").textContent = e.message; }
+}
+
+// ---- 提问：SSE 流式 + 思考计时 ----
+async function ask(){
+  const q = $("q").value.trim(); if(!q) return;
+  $("empty").classList.add("hide");
+  const log = $("log");
+  const turn = document.createElement("div"); turn.className="turn";
+  turn.innerHTML = `<div class="ask"><div class="b">${esc(q)}</div></div>
+    <div class="ans"><div class="body pending"><span class="think" id="tk">检索中… 0.0s</span></div></div>`;
+  log.appendChild(turn);
+  $("q").value = "";
+  $("scroll").scrollTop = $("scroll").scrollHeight;
+
+  const ansEl = turn.querySelector(".ans");
+  const bodyEl = turn.querySelector(".body");
+  const t0 = performance.now();
+  const secs = ()=> ((performance.now()-t0)/1000).toFixed(1);
+  const tk = turn.querySelector("#tk"); if(tk) tk.removeAttribute("id");
+  const timer = setInterval(()=>{ if(tk && tk.isConnected) tk.textContent = `思考中… ${secs()}s`; }, 100);
+
+  let text = "", sources = [], started = false;
+  const finish = (took)=>{
+    clearInterval(timer);
+    // 来源显示准则名（没有 frontmatter 的文档退回文件名），附发文字号与财政部原文链接
+    const cites = sources.map(s=>{
+      const label = s.title || s.source;
+      const no = s.doc_no ? `<span class="docno">${esc(s.doc_no)}</span>` : "";
+      const link = s.url ? ` <a class="srclink" href="${esc(s.url)}" target="_blank" rel="noopener">官方原文</a>` : "";
+      return `<button class="srcbtn" data-src="${esc(s.source)}">${esc(label)}</button>${no}<span class="lay ${s.layer}">${s.layer}</span>${link}`;
+    }).join("；");
+    ansEl.innerHTML = `<div class="body">${esc(text)}</div>`
+      + (cites?`<div class="cite">来源：${cites}　<span style="color:var(--muted)">（点击查看原文）</span></div>`:"")
+      + `<div class="took">思考用时 ${took}</div>`;
+    ansEl.querySelectorAll(".srcbtn").forEach(b=> b.onclick = ()=> openDoc(b.dataset.src, text));
+    $("scroll").scrollTop = $("scroll").scrollHeight;
+  };
+
+  try{
+    const r = await fetch("/api/query_stream", {
+      method:"POST",
+      headers:{"Content-Type":"application/json","Authorization":"Bearer "+TOKEN},
+      body: JSON.stringify({question:q}),
+    });
+    if(!r.ok){ const e = await r.json().catch(()=>({})); throw new Error(e.detail || ("请求失败 "+r.status)); }
+
+    const reader = r.body.getReader(), dec = new TextDecoder();
+    let buf = "";
+    for(;;){
+      const {value, done} = await reader.read();
+      if(done) break;
+      buf += dec.decode(value, {stream:true});
+      const blocks = buf.split("\n\n"); buf = blocks.pop();
+      for(const blk of blocks){
+        const ev = (blk.match(/^event: (.+)$/m)||[])[1];
+        const dt = (blk.match(/^data: (.+)$/m)||[])[1];
+        if(!ev || !dt) continue;
+        const d = JSON.parse(dt);
+        if(ev === "meta"){ /* 检索耗时；来源改由 done 下发（答不上来时不挂来源） */ }
+        else if(ev === "token"){
+          if(!started){ started = true; bodyEl.classList.remove("pending"); bodyEl.innerHTML = ""; clearInterval(timer); }
+          text += d.text;
+          bodyEl.innerHTML = esc(text) + `<span class="cursor"></span>`;
+          $("scroll").scrollTop = $("scroll").scrollHeight;
+        }
+        else if(ev === "done"){ sources = d.sources || []; finish(`${(d.elapsed_ms/1000).toFixed(1)}s`); return; }
+        else if(ev === "error"){ throw new Error(d.message); }
+      }
+    }
+    finish(`${secs()}s`);   // 流意外结束也收尾
+  }catch(e){
+    clearInterval(timer);
+    bodyEl.classList.remove("pending");
+    bodyEl.innerHTML = esc(e.message);
+  }
+  $("scroll").scrollTop = $("scroll").scrollHeight;
+}
+$("sendBtn").onclick = ask;
+$("q").addEventListener("keydown", e=>{ if(e.key==="Enter") ask(); });
+
+// 弹窗开关
+document.querySelectorAll("[data-close]").forEach(b=> b.onclick = ()=> $(b.dataset.close).classList.add("hide"));
+$("pwdBtn").onclick = ()=>{ $("pwdMsg").textContent=""; $("np").value=""; $("pwdModal").classList.remove("hide"); };
+$("uploadBtn").onclick = ()=>{ $("upMsg").textContent=""; $("uf").value=""; $("upModal").classList.remove("hide"); };
+
+// ---- 上传文档：服务端同进程入库，回来即可检索，无需重启 ----
+$("upSave").onclick = async ()=>{
+  const f = $("uf").files[0];
+  const msg = $("upMsg");
+  if(!f){ msg.style.color="var(--rust)"; msg.textContent="请先选择文件"; return; }
+  const fd = new FormData();
+  fd.append("file", f);
+  fd.append("layer", document.querySelector("input[name=ulayer]:checked").value);
+
+  $("upSave").disabled = true;
+  msg.style.color="var(--muted)";
+  msg.textContent = `正在向量化「${f.name}」，大文件可能要一会儿…`;
+  try{
+    const r = await fetch("/api/upload", {method:"POST", headers:{"Authorization":"Bearer "+TOKEN}, body: fd});
+    const d = await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(d.detail || ("上传失败 "+r.status));
+    msg.style.color="var(--green)";
+    msg.textContent = `${d.replaced?"已替换":"已入库"}：${d.source}（${d.chunks} 片，${d.layer} 层）`;
+    loadDocs();                                  // 侧栏立刻刷新
+    setTimeout(()=>$("upModal").classList.add("hide"), 1200);
+  }catch(e){ msg.style.color="var(--rust)"; msg.textContent = e.message; }
+  finally{ $("upSave").disabled = false; }
+};
+$("newAcctBtn").onclick = ()=>{ $("acctMsg").textContent=""; $("au").value=""; $("ap").value=""; $("acctModal").classList.remove("hide"); };
+
+$("pwdSave").onclick = async ()=>{
+  try{ await api("/api/password","POST",{new_password:$("np").value}); $("pwdMsg").textContent="已修改"; setTimeout(()=>$("pwdModal").classList.add("hide"),800); }
+  catch(e){ $("pwdMsg").style.color="var(--rust)"; $("pwdMsg").textContent=e.message; }
+};
+$("acctSave").onclick = async ()=>{
+  const roles = [...document.querySelectorAll(".arole:checked")].map(c=>c.value);
+  try{
+    await api("/api/register","POST",{username:$("au").value.trim(), password:$("ap").value, roles});
+    $("acctMsg").style.color="var(--green)"; $("acctMsg").textContent="账号已创建";
+    setTimeout(()=>$("acctModal").classList.add("hide"),900);
+  }catch(e){ $("acctMsg").style.color="var(--rust)"; $("acctMsg").textContent=e.message; }
+};
+
+$("logoutBtn").onclick = ()=>{ TOKEN=null; ROLES=[]; $("appView").classList.add("hide"); $("loginView").classList.remove("hide"); $("log").innerHTML=""; $("empty").classList.remove("hide"); };
+</script>
+</body>
+</html>
