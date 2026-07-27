@@ -19,7 +19,7 @@ from config import LLM_MODEL, MAX_UPLOAD_MB
 from ingest import EXTS, LAYER_DIRS, ingest_file
 from permissions import is_admin, allowed_layers
 from rag import (answer, retrieve, stream_generate, list_docs, get_doc, sources_for,
-                 used_passages, current_llm, available_providers, set_active_provider)
+                 used_passages, current_llm, available_providers, set_active_provider, translate)
 import config
 
 
@@ -115,6 +115,23 @@ def llm_get(user=Depends(current_user)):
 
 class LlmIn(BaseModel):
     provider: str
+
+
+class TranslateIn(BaseModel):
+    texts: list[str]
+
+
+@app.post("/api/translate")
+def translate_api(body: TranslateIn, user=Depends(current_user)):
+    """把英文段落翻成中文（用当前选中的模型）。前端「参考原文」的中英对照用。"""
+    if not body.texts:
+        return {"translations": []}
+    try:
+        return {"translations": translate(body.texts[:8])}   # 上限 8 段，防滥用
+    except requests.exceptions.ConnectionError:
+        raise HTTPException(503, "模型服务不可用")
+    except Exception as e:
+        raise HTTPException(500, f"翻译失败：{type(e).__name__}: {e}")
 
 
 @app.post("/api/llm")

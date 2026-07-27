@@ -91,6 +91,11 @@
   .refitem{margin-top:10px;padding:10px 12px;background:var(--bg);border-radius:8px;border:1px solid var(--line)}
   .reftitle{font-weight:600;color:var(--ink);font-size:12px;margin-bottom:5px}
   .reftext{color:var(--ink2);line-height:1.65;white-space:pre-wrap}
+  .reftrans{margin-top:8px;padding-top:8px;border-top:1px dashed var(--line2);color:var(--ink);line-height:1.7;white-space:pre-wrap}
+  .trbtn{margin-left:10px;background:none;border:1px solid var(--green);color:var(--green);border-radius:6px;
+         padding:2px 9px;font-size:11.5px;cursor:pointer;font-family:inherit}
+  .trbtn:hover{background:var(--green);color:#fff}
+  .trbtn:disabled{opacity:.6;cursor:default}
   .lay{font-family:var(--mono);font-size:10px;padding:0 5px;border-radius:4px;margin-left:4px}
   .lay.all{background:var(--blue-bg);color:var(--blue)}
   .lay.finance{background:var(--brass-bg);color:var(--brass)}
@@ -494,8 +499,8 @@ async function ask(){
     // 参考原文：回答实际依据的片段，自动展示（可折叠）
     let refs = "";
     if(passages.length){
-      refs = `<details class="refs" open><summary>📄 参考原文（${passages.length} 段，点击折叠）</summary>`
-        + passages.map(p=>`<div class="refitem"><div class="reftitle">${esc(p.title)}<span class="lay ${p.layer}">${p.layer}</span></div><div class="reftext">${esc(p.text)}</div></div>`).join("")
+      refs = `<details class="refs" open><summary>📄 参考原文（${passages.length} 段）<button class="trbtn">🌐 中英对照</button></summary>`
+        + passages.map((p,i)=>`<div class="refitem"><div class="reftitle">${esc(p.title)}<span class="lay ${p.layer}">${p.layer}</span></div><div class="reftext">${esc(p.text)}</div><div class="reftrans hide" data-i="${i}"></div></div>`).join("")
         + `</details>`;
     }
     // 每次回答后再给几个可点的追问建议（轮换，不总是同 4 个）
@@ -513,6 +518,29 @@ async function ask(){
       + followup;
     ansEl.querySelectorAll(".srcbtn").forEach(b=> b.onclick = ()=> openDoc(b.dataset.src, text));
     ansEl.querySelectorAll(".fu").forEach(b=> b.onclick = ()=>{ $("q").value = b.textContent; ask(); });
+    // 「中英对照」：把参考原文的英文用当前模型翻成中文，逐段注入（翻过一次就缓存，反复开合）
+    const trBtn = ansEl.querySelector(".trbtn"), myPassages = passages.slice();
+    if(trBtn){
+      trBtn.onclick = async (e)=>{
+        e.preventDefault(); e.stopPropagation();      // 别让点按钮把折叠面板收起来
+        const shown = trBtn.dataset.on === "1";
+        if(trBtn.dataset.loaded){                       // 已翻过 → 纯开/合
+          ansEl.querySelectorAll(".reftrans").forEach(el=> el.classList.toggle("hide", shown));
+          trBtn.textContent = shown ? "🌐 中英对照" : "收起译文"; trBtn.dataset.on = shown?"":"1";
+          return;
+        }
+        trBtn.textContent = "翻译中…"; trBtn.disabled = true;
+        try{
+          const d = await api("/api/translate","POST",{texts: myPassages.map(p=>p.text)});
+          (d.translations||[]).forEach((t,i)=>{
+            const el = ansEl.querySelector(`.reftrans[data-i="${i}"]`);
+            if(el && t){ el.textContent = "🇨🇳 "+t; el.classList.remove("hide"); }
+          });
+          trBtn.textContent = "收起译文"; trBtn.dataset.loaded = "1"; trBtn.dataset.on = "1";
+        }catch(err){ trBtn.textContent = "翻译失败，点重试"; }
+        finally{ trBtn.disabled = false; }
+      };
+    }
     $("scroll").scrollTop = $("scroll").scrollHeight;
     loadStats();                       // 提问数变了，刷新用量
   };

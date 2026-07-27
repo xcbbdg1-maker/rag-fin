@@ -225,21 +225,21 @@ def _anthropic_headers(key: str) -> dict:
     return {"x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"}
 
 
-def generate(question: str, contexts) -> str:
-    ctx = _context(contexts)
-    prompt = _PROMPT.format(context=ctx, question=question)
-    msgs = [{"role": "user", "content": prompt}]
+def _complete(msgs, max_tokens: int = None) -> str:
+    """按当前 provider 做一次非流式补全，返回纯文本。问答/翻译共用。"""
     provider, base, key, model = current_llm()
     if provider == "anthropic":
         data = _post(f"{base.rstrip('/')}/v1/messages",
-                     {"model": model, "max_tokens": LLM_MAX_TOKENS,
+                     {"model": model, "max_tokens": max_tokens or LLM_MAX_TOKENS,
                       "temperature": 0.1, "messages": msgs},
                      timeout=300, headers=_anthropic_headers(key))
         parts = [b.get("text", "") for b in (data.get("content") or []) if b.get("type") == "text"]
         return "".join(parts).strip()
     if provider != "ollama":                           # GPT / DeepSeek / Kimi
-        data = _post(f"{base.rstrip('/')}/chat/completions",
-                     {"model": model, "messages": msgs, "temperature": 0.1, "stream": False},
+        body = {"model": model, "messages": msgs, "temperature": 0.1, "stream": False}
+        if max_tokens:
+            body["max_tokens"] = max_tokens
+        data = _post(f"{base.rstrip('/')}/chat/completions", body,
                      timeout=300, headers={"Authorization": f"Bearer {key}"})
         return (data.get("choices") or [{}])[0].get("message", {}).get("content", "").strip()
     payload = {"model": model, "messages": msgs, "stream": False, "think": False,
@@ -251,6 +251,29 @@ def generate(question: str, contexts) -> str:
         data = _post(f"{OLLAMA_URL}/api/chat", payload, timeout=300)
     content = (data.get("message") or {}).get("content", "")
     return _THINK_TAG.sub("", content).strip()   # 兜底:万一仍带 <think> 标签就剥掉
+
+
+def generate(question: str, contexts) -> str:
+    prompt = _PROMPT.format(context=_context(contexts), question=question)
+    return _complete([{"role": "user", "content": prompt}])
+
+
+def translate(texts: list) -> list:
+    """把一组英文段落逐条翻成简体中文，顺序对齐返回。用当前选中的模型翻。"""
+    texts = [t for t in (texts or []) if t and t.strip()]
+    if not texts:
+        return []
+    numbered = "\n\n".join(f"[{i+1}] {t}" for i, t in enumerate(texts))
+    prompt = ("把下面每一条英文（会计准则相关）准确翻译成简体中文。规则：\n"
+              "1) 严格按 [序号] 开头逐条输出译文，条与条之间空一行；\n"
+              "2) 只输出译文，不要重复英文原文，不要加解释；\n"
+              "3) 专业术语用会计通行译法（如 CGU=现金产出单元、carrying amount=账面价值、"
+              "recoverable amount=可收回金额、fair value=公允价值）。\n\n" + numbered)
+    raw = _complete([{"role": "user", "content": prompt}], max_tokens=2000)
+    out = {}
+    for m in re.finditer(r'\[(\d+)\]\s*(.*?)(?=\n\s*\[\d+\]|\Z)', raw, re.S):
+        out[int(m.group(1))] = m.group(2).strip()
+    return [out.get(i + 1, "") for i in range(len(texts))]
 
 
 def stream_generate(question: str, contexts):
